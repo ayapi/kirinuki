@@ -38,7 +38,6 @@ export KIRINUKI_ANTHROPIC_API_KEY="sk-ant-..."
 export KIRINUKI_OPENAI_API_KEY="sk-..."
 
 # 任意
-export KIRINUKI_COOKIE_FILE_PATH="/path/to/cookies.txt"  # メンバー限定配信用
 export KIRINUKI_DB_PATH="/path/to/data.db"               # デフォルト: ~/.kirinuki/data.db
 export KIRINUKI_LLM_MODEL="claude-haiku-4-5-20251001"    # デフォルト
 export KIRINUKI_EMBEDDING_MODEL="text-embedding-3-small"  # デフォルト
@@ -55,8 +54,8 @@ kirinuki channel add https://www.youtube.com/@channel_name
 # 登録済みチャンネル一覧
 kirinuki channel list
 
-# チャンネルの動画一覧
-kirinuki channel videos <channel_id>
+# チャンネルの動画一覧（チャンネルが1つなら省略可）
+kirinuki channel videos [channel_id]
 ```
 
 ### 字幕の同期
@@ -85,17 +84,32 @@ kirinuki search "コラボ配信" --limit 5
 kirinuki segments <video_id>
 ```
 
+### Cookie 管理
+
+メンバー限定配信を取得するには Cookie の設定が必要です。Cookie は `~/.kirinuki/cookies.txt` に保存されます。
+
+```bash
+# Cookie を設定（標準入力から読み取り）
+cat cookies.txt | kirinuki cookie set
+
+# Cookie の設定状態を確認
+kirinuki cookie status
+
+# Cookie を削除
+kirinuki cookie delete
+```
+
 ### 切り抜き候補の推薦
 
 ```bash
-# チャンネルの最新アーカイブから切り抜き候補を推薦
-kirinuki suggest <channel_id>
+# チャンネルの最新アーカイブから切り抜き候補を推薦（チャンネルが1つなら省略可）
+kirinuki suggest [channel_id]
 
 # オプション指定
-kirinuki suggest <channel_id> --count 5 --threshold 5
+kirinuki suggest [channel_id] --count 5 --threshold 5
 
 # JSON出力
-kirinuki suggest <channel_id> --json
+kirinuki suggest [channel_id] --json
 ```
 
 | オプション | デフォルト | 説明 |
