@@ -56,7 +56,7 @@ class SyncService:
         existing_ids = self._db.get_existing_video_ids(channel_id)
         unavailable_ids = self._db.get_unavailable_video_ids(channel_id)
         exclude_ids = existing_ids | unavailable_ids
-        new_ids = [vid for vid in all_video_ids if vid not in exclude_ids]
+        new_ids = list(dict.fromkeys(vid for vid in all_video_ids if vid not in exclude_ids))
         result.already_synced = len(existing_ids)
         result.unavailable_skipped = len(
             [vid for vid in all_video_ids if vid in unavailable_ids]

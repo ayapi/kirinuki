@@ -25,13 +25,16 @@ class TestListChannelVideoIds:
         mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
         mock_ydl.extract_info.return_value = {
             "entries": [
-                {"id": "vid1", "title": "Video 1"},
-                {"id": "vid2", "title": "Video 2"},
-                {"id": "vid3", "title": "Video 3"},
+                {"id": "dQw4w9WgXcQ", "title": "Video 1"},
+                {"id": "9bZkp7q19f0", "title": "Video 2"},
+                {"id": "JGwWNGJdvx8", "title": "Video 3"},
             ]
         }
         ids = client.list_channel_video_ids("https://youtube.com/c/test")
-        assert ids == ["vid1", "vid2", "vid3"]
+        assert ids == ["dQw4w9WgXcQ", "9bZkp7q19f0", "JGwWNGJdvx8"]
+        # /videos が付加されたURLで呼ばれることを確認
+        call_url = mock_ydl.extract_info.call_args[0][0]
+        assert call_url.endswith("/videos")
 
     @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
     def test_empty_channel(self, mock_ydl_cls, client):
@@ -41,6 +44,50 @@ class TestListChannelVideoIds:
         mock_ydl.extract_info.return_value = {"entries": []}
         ids = client.list_channel_video_ids("https://youtube.com/c/empty")
         assert ids == []
+
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_filters_non_video_ids(self, mock_ydl_cls, client):
+        """チャンネルIDなど11文字でないIDはフィルタされる"""
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {"id": "UCU_vZ0kggiHFOxnvHqHt_aQ", "title": "Videos"},
+                {"id": "dQw4w9WgXcQ", "title": "Real Video"},
+                {"id": "UCU_vZ0kggiHFOxnvHqHt_aQ", "title": "Shorts"},
+            ]
+        }
+        ids = client.list_channel_video_ids("https://youtube.com/@test")
+        assert ids == ["dQw4w9WgXcQ"]
+
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_deduplicates_video_ids(self, mock_ydl_cls, client):
+        """重複する動画IDが除去される"""
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {"id": "dQw4w9WgXcQ", "title": "Video 1"},
+                {"id": "dQw4w9WgXcQ", "title": "Video 1 dup"},
+                {"id": "9bZkp7q19f0", "title": "Video 2"},
+            ]
+        }
+        ids = client.list_channel_video_ids("https://youtube.com/@test")
+        assert ids == ["dQw4w9WgXcQ", "9bZkp7q19f0"]
+
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_url_already_has_videos_suffix(self, mock_ydl_cls, client):
+        """既に/videosがあるURLは二重付加しない"""
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {"entries": []}
+        client.list_channel_video_ids("https://youtube.com/@test/videos")
+        call_url = mock_ydl.extract_info.call_args[0][0]
+        assert call_url == "https://youtube.com/@test/videos"
+        assert not call_url.endswith("/videos/videos")
 
 
 class TestFetchVideoMetadata:

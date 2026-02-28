@@ -8,7 +8,10 @@
       "Bash(git worktree:*)",
       "Bash(git branch:*)",
       "WebSearch",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(python:*)",
+      "Bash(pip show:*)",
+      "Bash(uv run:*)"
     ]
   }
 }
