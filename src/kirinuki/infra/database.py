@@ -64,6 +64,18 @@ CREATE TABLE IF NOT EXISTS segments (
 );
 CREATE INDEX IF NOT EXISTS idx_segments_video ON segments(video_id);
 
+CREATE TABLE IF NOT EXISTS unavailable_videos (
+    video_id TEXT PRIMARY KEY,
+    channel_id TEXT NOT NULL REFERENCES channels(channel_id),
+    error_type TEXT NOT NULL CHECK(error_type IN ('auth_required', 'unavailable')),
+    reason TEXT NOT NULL,
+    recorded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_unavailable_channel
+    ON unavailable_videos(channel_id);
+CREATE INDEX IF NOT EXISTS idx_unavailable_type
+    ON unavailable_videos(channel_id, error_type);
+
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY
 );
@@ -337,6 +349,61 @@ class Database:
             }
             for row in rows
         ]
+
+    # --- Unavailable Videos CRUD ---
+
+    def save_unavailable_video(
+        self, video_id: str, channel_id: str, error_type: str, reason: str
+    ) -> None:
+        assert self._conn is not None
+        self._conn.execute(
+            """INSERT INTO unavailable_videos (video_id, channel_id, error_type, reason, recorded_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(video_id) DO UPDATE SET
+                   error_type = excluded.error_type,
+                   reason = excluded.reason,
+                   recorded_at = excluded.recorded_at""",
+            (video_id, channel_id, error_type, reason, datetime.now(tz=timezone.utc).isoformat()),
+        )
+        self._conn.commit()
+
+    def get_unavailable_video_ids(self, channel_id: str) -> set[str]:
+        rows = self._execute(
+            "SELECT video_id FROM unavailable_videos WHERE channel_id = ?",
+            (channel_id,),
+        ).fetchall()
+        return {row[0] for row in rows}
+
+    def get_auth_unavailable_recorded_at(self, channel_id: str) -> datetime | None:
+        row = self._execute(
+            """SELECT MIN(recorded_at) FROM unavailable_videos
+               WHERE channel_id = ? AND error_type = 'auth_required'""",
+            (channel_id,),
+        ).fetchone()
+        if row is None or row[0] is None:
+            return None
+        return datetime.fromisoformat(row[0])
+
+    def clear_unavailable_by_type(self, channel_id: str, error_type: str) -> int:
+        assert self._conn is not None
+        cursor = self._conn.execute(
+            "DELETE FROM unavailable_videos WHERE channel_id = ? AND error_type = ?",
+            (channel_id, error_type),
+        )
+        self._conn.commit()
+        return cursor.rowcount
+
+    def clear_all_unavailable(self, channel_id: str | None = None) -> int:
+        assert self._conn is not None
+        if channel_id is not None:
+            cursor = self._conn.execute(
+                "DELETE FROM unavailable_videos WHERE channel_id = ?",
+                (channel_id,),
+            )
+        else:
+            cursor = self._conn.execute("DELETE FROM unavailable_videos")
+        self._conn.commit()
+        return cursor.rowcount
 
     def fts_search_segments(self, query: str, limit: int = 50) -> list[dict]:
         """FTS検索結果から関連するセグメントを特定して返す"""

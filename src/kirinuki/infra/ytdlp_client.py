@@ -2,17 +2,24 @@
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 import yt_dlp
 
-from kirinuki.core.errors import AuthenticationRequiredError, VideoDownloadError
+from kirinuki.core.errors import (
+    AuthenticationRequiredError,
+    VideoDownloadError,
+    VideoUnavailableError,
+)
 from kirinuki.models.config import AppConfig
 from kirinuki.models.domain import SubtitleEntry
 
 logger = logging.getLogger(__name__)
+
+_YOUTUBE_VIDEO_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{11}$")
 
 
 @dataclass
@@ -45,21 +52,60 @@ class YtdlpClient:
             opts["cookiefile"] = str(self._config.cookie_file_path)
         return opts
 
+    @staticmethod
+    def _is_auth_error(msg: str) -> bool:
+        lower = msg.lower()
+        return (
+            "Sign in" in msg
+            or "login" in lower
+            or "members-only" in lower
+            or "Join this channel" in msg
+        )
+
     def list_channel_video_ids(self, channel_url: str) -> list[str]:
         opts = self._base_opts()
         opts["extract_flat"] = True
+
+        # チャンネルのメインURLだとタブ(Videos/Shorts/Live)のエントリが返る。
+        # /videos を付加して動画タブから直接動画IDを取得する。
+        normalized = channel_url.rstrip("/")
+        if not normalized.endswith("/videos"):
+            normalized += "/videos"
+
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(channel_url, download=False)
+            info = ydl.extract_info(normalized, download=False)
         if not info or "entries" not in info:
             return []
-        return [entry["id"] for entry in info["entries"] if entry and "id" in entry]
+
+        seen: set[str] = set()
+        video_ids: list[str] = []
+        for entry in info["entries"]:
+            if not entry or "id" not in entry:
+                continue
+            vid = entry["id"]
+            # YouTube動画IDは11文字。チャンネルID等を除外する。
+            if not _YOUTUBE_VIDEO_ID_RE.match(vid):
+                continue
+            if vid not in seen:
+                seen.add(vid)
+                video_ids.append(vid)
+        return video_ids
 
     def fetch_video_metadata(self, video_id: str) -> VideoMeta:
         opts = self._base_opts()
         url = f"https://www.youtube.com/watch?v={video_id}"
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-        assert info is not None
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except yt_dlp.DownloadError as e:
+            msg = str(e)
+            if self._is_auth_error(msg):
+                raise AuthenticationRequiredError(
+                    f"認証が必要です ({video_id}): {msg}"
+                ) from e
+            raise VideoUnavailableError(video_id, msg) from e
+        if info is None:
+            raise VideoUnavailableError(video_id, "メタデータを取得できませんでした")
         published_at = None
         upload_date = info.get("upload_date")
         if upload_date:
@@ -84,8 +130,16 @@ class YtdlpClient:
         opts["subtitlesformat"] = "json3"
         url = f"https://www.youtube.com/watch?v={video_id}"
 
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except yt_dlp.DownloadError as e:
+            msg = str(e)
+            if self._is_auth_error(msg):
+                raise AuthenticationRequiredError(
+                    f"認証が必要です ({video_id}): {msg}"
+                ) from e
+            raise VideoUnavailableError(video_id, msg) from e
 
         if not info:
             return None
@@ -162,7 +216,7 @@ class YtdlpClient:
                 info = ydl.extract_info(url, download=True)
         except yt_dlp.DownloadError as e:
             msg = str(e)
-            if "Sign in" in msg or "login" in msg.lower() or "members-only" in msg.lower():
+            if self._is_auth_error(msg):
                 hint = msg
                 if not self._config.cookie_file_path.exists():
                     hint += "\ncookiesが未設定です。`kirinuki cookie set` で設定してください。"

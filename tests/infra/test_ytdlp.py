@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yt_dlp
 
-from kirinuki.core.errors import AuthenticationRequiredError
+from kirinuki.core.errors import AuthenticationRequiredError, VideoUnavailableError
 from kirinuki.infra.ytdlp_client import YtdlpClient
 from kirinuki.models.config import AppConfig
 
@@ -25,13 +25,16 @@ class TestListChannelVideoIds:
         mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
         mock_ydl.extract_info.return_value = {
             "entries": [
-                {"id": "vid1", "title": "Video 1"},
-                {"id": "vid2", "title": "Video 2"},
-                {"id": "vid3", "title": "Video 3"},
+                {"id": "dQw4w9WgXcQ", "title": "Video 1"},
+                {"id": "9bZkp7q19f0", "title": "Video 2"},
+                {"id": "JGwWNGJdvx8", "title": "Video 3"},
             ]
         }
         ids = client.list_channel_video_ids("https://youtube.com/c/test")
-        assert ids == ["vid1", "vid2", "vid3"]
+        assert ids == ["dQw4w9WgXcQ", "9bZkp7q19f0", "JGwWNGJdvx8"]
+        # /videos が付加されたURLで呼ばれることを確認
+        call_url = mock_ydl.extract_info.call_args[0][0]
+        assert call_url.endswith("/videos")
 
     @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
     def test_empty_channel(self, mock_ydl_cls, client):
@@ -41,6 +44,50 @@ class TestListChannelVideoIds:
         mock_ydl.extract_info.return_value = {"entries": []}
         ids = client.list_channel_video_ids("https://youtube.com/c/empty")
         assert ids == []
+
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_filters_non_video_ids(self, mock_ydl_cls, client):
+        """チャンネルIDなど11文字でないIDはフィルタされる"""
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {"id": "UCU_vZ0kggiHFOxnvHqHt_aQ", "title": "Videos"},
+                {"id": "dQw4w9WgXcQ", "title": "Real Video"},
+                {"id": "UCU_vZ0kggiHFOxnvHqHt_aQ", "title": "Shorts"},
+            ]
+        }
+        ids = client.list_channel_video_ids("https://youtube.com/@test")
+        assert ids == ["dQw4w9WgXcQ"]
+
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_deduplicates_video_ids(self, mock_ydl_cls, client):
+        """重複する動画IDが除去される"""
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {"id": "dQw4w9WgXcQ", "title": "Video 1"},
+                {"id": "dQw4w9WgXcQ", "title": "Video 1 dup"},
+                {"id": "9bZkp7q19f0", "title": "Video 2"},
+            ]
+        }
+        ids = client.list_channel_video_ids("https://youtube.com/@test")
+        assert ids == ["dQw4w9WgXcQ", "9bZkp7q19f0"]
+
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_url_already_has_videos_suffix(self, mock_ydl_cls, client):
+        """既に/videosがあるURLは二重付加しない"""
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {"entries": []}
+        client.list_channel_video_ids("https://youtube.com/@test/videos")
+        call_url = mock_ydl.extract_info.call_args[0][0]
+        assert call_url == "https://youtube.com/@test/videos"
+        assert not call_url.endswith("/videos/videos")
 
 
 class TestFetchVideoMetadata:
@@ -106,6 +153,59 @@ class TestFetchSubtitle:
         }
         result = client.fetch_subtitle("vid1")
         assert result is None
+
+
+class TestIsAuthError:
+    def test_sign_in(self, client):
+        assert client._is_auth_error("Sign in to confirm your age") is True
+
+    def test_login(self, client):
+        assert client._is_auth_error("Please login to view this content") is True
+
+    def test_members_only(self, client):
+        assert client._is_auth_error("This is members-only content") is True
+
+    def test_join_channel(self, client):
+        assert client._is_auth_error("Join this channel to get access") is True
+
+    def test_generic_error(self, client):
+        assert client._is_auth_error("Video has been removed") is False
+
+    def test_empty(self, client):
+        assert client._is_auth_error("") is False
+
+
+class TestFetchVideoMetadataErrors:
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_download_error_auth(self, mock_ydl_cls, client):
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.side_effect = yt_dlp.DownloadError(
+            "Join this channel to get access to members-only content"
+        )
+        with pytest.raises(AuthenticationRequiredError):
+            client.fetch_video_metadata("vid1")
+
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_download_error_unavailable(self, mock_ydl_cls, client):
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.side_effect = yt_dlp.DownloadError("Video unavailable")
+        with pytest.raises(VideoUnavailableError) as exc_info:
+            client.fetch_video_metadata("vid1")
+        assert exc_info.value.video_id == "vid1"
+
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_info_none_raises_unavailable(self, mock_ydl_cls, client):
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = None
+        with pytest.raises(VideoUnavailableError) as exc_info:
+            client.fetch_video_metadata("vid1")
+        assert exc_info.value.video_id == "vid1"
 
 
 class TestCookieAuth:

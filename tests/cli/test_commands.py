@@ -79,6 +79,72 @@ class TestSync:
         assert "3" in result.output  # newly_synced
 
 
+class TestSyncAuthErrors:
+    @patch("kirinuki.cli.main.create_app_context")
+    def test_auth_errors_show_cookie_hint(self, mock_ctx, runner):
+        mock_context = MagicMock()
+        mock_context.sync_service.sync_all.return_value = SyncResult(
+            already_synced=5, newly_synced=1, skipped=0, auth_errors=3,
+        )
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = runner.invoke(cli, ["sync"])
+        assert result.exit_code == 0
+        assert "3" in result.output
+        assert "cookie set" in result.output.lower() or "Cookie" in result.output
+
+    @patch("kirinuki.cli.main.create_app_context")
+    def test_unavailable_skipped_shown(self, mock_ctx, runner):
+        mock_context = MagicMock()
+        mock_context.sync_service.sync_all.return_value = SyncResult(
+            already_synced=5, newly_synced=1, skipped=0, unavailable_skipped=2,
+        )
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = runner.invoke(cli, ["sync"])
+        assert result.exit_code == 0
+        assert "unavailable" in result.output.lower() or "スキップ" in result.output
+
+    @patch("kirinuki.cli.main.create_app_context")
+    def test_no_auth_errors_no_cookie_hint(self, mock_ctx, runner):
+        mock_context = MagicMock()
+        mock_context.sync_service.sync_all.return_value = SyncResult(
+            already_synced=5, newly_synced=1, skipped=0,
+        )
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = runner.invoke(cli, ["sync"])
+        assert result.exit_code == 0
+        assert "cookie" not in result.output.lower()
+
+
+class TestUnavailableReset:
+    @patch("kirinuki.cli.main.create_app_context")
+    def test_reset_all(self, mock_ctx, runner):
+        mock_context = MagicMock()
+        mock_context.db.clear_all_unavailable.return_value = 5
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = runner.invoke(cli, ["unavailable", "reset"], input="y\n")
+        assert result.exit_code == 0
+        assert "5" in result.output
+
+    @patch("kirinuki.cli.main.create_app_context")
+    def test_reset_channel(self, mock_ctx, runner):
+        mock_context = MagicMock()
+        mock_context.db.clear_all_unavailable.return_value = 3
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = runner.invoke(cli, ["unavailable", "reset", "--channel", "UC1"])
+        assert result.exit_code == 0
+        assert "3" in result.output
+
+
 class TestSearch:
     @patch("kirinuki.cli.main.create_app_context")
     def test_search_results(self, mock_ctx, runner):

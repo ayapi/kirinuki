@@ -1,5 +1,6 @@
 """データベース層のテスト"""
 
+import time
 from datetime import datetime, timezone
 
 import pytest
@@ -131,6 +132,66 @@ class TestSegmentCRUD:
         db.save_segments_with_vectors("vid1", segments_data, vectors)
         segs = db.list_segments("vid1")
         assert len(segs) == 1
+
+class TestUnavailableVideosCRUD:
+    def test_save_and_get_unavailable(self, db: Database) -> None:
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_unavailable_video("vid1", "UC1", "auth_required", "Join this channel")
+        db.save_unavailable_video("vid2", "UC1", "unavailable", "Video removed")
+        ids = db.get_unavailable_video_ids("UC1")
+        assert ids == {"vid1", "vid2"}
+
+    def test_get_unavailable_empty(self, db: Database) -> None:
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        ids = db.get_unavailable_video_ids("UC1")
+        assert ids == set()
+
+    def test_upsert_unavailable(self, db: Database) -> None:
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_unavailable_video("vid1", "UC1", "auth_required", "reason1")
+        db.save_unavailable_video("vid1", "UC1", "unavailable", "reason2")
+        ids = db.get_unavailable_video_ids("UC1")
+        assert ids == {"vid1"}
+
+    def test_get_auth_unavailable_recorded_at(self, db: Database) -> None:
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        assert db.get_auth_unavailable_recorded_at("UC1") is None
+        db.save_unavailable_video("vid1", "UC1", "auth_required", "reason")
+        recorded = db.get_auth_unavailable_recorded_at("UC1")
+        assert recorded is not None
+
+    def test_clear_unavailable_by_type(self, db: Database) -> None:
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_unavailable_video("vid1", "UC1", "auth_required", "reason")
+        db.save_unavailable_video("vid2", "UC1", "unavailable", "reason")
+        cleared = db.clear_unavailable_by_type("UC1", "auth_required")
+        assert cleared == 1
+        ids = db.get_unavailable_video_ids("UC1")
+        assert ids == {"vid2"}
+
+    def test_clear_all_unavailable_channel(self, db: Database) -> None:
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_channel("UC2", "Ch2", "https://youtube.com/c/ch2")
+        db.save_unavailable_video("vid1", "UC1", "auth_required", "reason")
+        db.save_unavailable_video("vid2", "UC2", "unavailable", "reason")
+        cleared = db.clear_all_unavailable("UC1")
+        assert cleared == 1
+        assert db.get_unavailable_video_ids("UC1") == set()
+        assert db.get_unavailable_video_ids("UC2") == {"vid2"}
+
+    def test_clear_all_unavailable_global(self, db: Database) -> None:
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_channel("UC2", "Ch2", "https://youtube.com/c/ch2")
+        db.save_unavailable_video("vid1", "UC1", "auth_required", "reason")
+        db.save_unavailable_video("vid2", "UC2", "unavailable", "reason")
+        cleared = db.clear_all_unavailable()
+        assert cleared == 2
+
+    def test_unavailable_table_exists(self, db: Database) -> None:
+        tables = db._execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        table_names = {row[0] for row in tables}
+        assert "unavailable_videos" in table_names
+
 
     def test_vector_search(self, db: Database) -> None:
         db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
