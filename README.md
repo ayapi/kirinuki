@@ -15,19 +15,39 @@ YouTube Live 配信アーカイブの字幕を蓄積し、LLM で話題区間を
 
 ## 必要なもの
 
+### ソースから使う場合
+
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/)
 - [ffmpeg](https://ffmpeg.org/)（切り抜き機能を使う場合）
 - Anthropic API キー（話題セグメンテーション・推薦用）
 - OpenAI API キー（埋め込みベクトル生成・セマンティック検索用）
 
+### ビルド済みバイナリを使う場合
+
+- [ffmpeg](https://ffmpeg.org/)（切り抜き機能を使う場合）
+- Anthropic API キー（話題セグメンテーション・推薦用）
+- OpenAI API キー（埋め込みベクトル生成・セマンティック検索用）
+
+Python や uv のインストールは不要です。
+
 ## インストール
+
+### ビルド済みバイナリを使う場合（おすすめ）
+
+1. Releases から `kirinuki.exe` をダウンロード
+2. PATH の通ったディレクトリに配置する（例: `C:\Users\<ユーザー名>\bin\`）
+3. そのまま `kirinuki` コマンドとして使えます
+
+### ソースから使う場合
 
 ```bash
 git clone <repository-url>
 cd kirinuki/initial
 uv sync
 ```
+
+ソースから使う場合は、すべてのコマンドを `uv run kirinuki ...` の形式で実行してください。
 
 ## 設定
 
@@ -44,6 +64,8 @@ export KIRINUKI_EMBEDDING_MODEL="text-embedding-3-small"  # デフォルト
 ```
 
 ## 使い方
+
+> ソースから使う場合は、各コマンドの先頭に `uv run` を付けてください（例: `uv run kirinuki channel list`）。
 
 ### チャンネル登録
 
@@ -132,6 +154,10 @@ uv run ruff format .
 
 # 型チェック
 uv run mypy src/
+
+# スタンドアロンバイナリのビルド
+uv run pyinstaller kirinuki.spec
+# 成果物: dist/kirinuki.exe
 ```
 
 ## ライセンス
