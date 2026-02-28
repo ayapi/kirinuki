@@ -15,13 +15,31 @@ YouTube Live 配信アーカイブの字幕を蓄積し、LLM で話題区間を
 
 ## 必要なもの
 
+### ソースから使う場合
+
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/)
 - [ffmpeg](https://ffmpeg.org/)（切り抜き機能を使う場合）
 - Anthropic API キー（話題セグメンテーション・推薦用）
 - OpenAI API キー（埋め込みベクトル生成・セマンティック検索用）
 
+### ビルド済みバイナリを使う場合
+
+- [ffmpeg](https://ffmpeg.org/)（切り抜き機能を使う場合）
+- Anthropic API キー（話題セグメンテーション・推薦用）
+- OpenAI API キー（埋め込みベクトル生成・セマンティック検索用）
+
+Python や uv のインストールは不要です。
+
 ## インストール
+
+### ビルド済みバイナリを使う場合（おすすめ）
+
+1. Releases から `kirinuki.exe` をダウンロード
+2. PATH の通ったディレクトリに配置する（例: `C:\Users\<ユーザー名>\bin\`）
+3. そのまま `kirinuki` コマンドとして使えます
+
+### ソースから使う場合
 
 ```bash
 git clone <repository-url>
@@ -29,21 +47,28 @@ cd kirinuki/initial
 uv sync
 ```
 
+ソースから使う場合は、すべてのコマンドを `uv run kirinuki ...` の形式で実行してください。
+
 ## 設定
 
-環境変数で設定します。接頭辞は `KIRINUKI_` です。
+環境変数または `~/.kirinuki/.env` ファイルで設定します。接頭辞は `KIRINUKI_` です。
 
 ```bash
-export KIRINUKI_ANTHROPIC_API_KEY="sk-ant-..."
-export KIRINUKI_OPENAI_API_KEY="sk-..."
+# ~/.kirinuki/.env に記載する場合
+KIRINUKI_ANTHROPIC_API_KEY="sk-ant-..."
+KIRINUKI_OPENAI_API_KEY="sk-..."
 
 # 任意
-export KIRINUKI_DB_PATH="/path/to/data.db"               # デフォルト: ~/.kirinuki/data.db
-export KIRINUKI_LLM_MODEL="claude-haiku-4-5-20251001"    # デフォルト
-export KIRINUKI_EMBEDDING_MODEL="text-embedding-3-small"  # デフォルト
+KIRINUKI_DB_PATH="/path/to/data.db"               # デフォルト: ~/.kirinuki/data.db
+KIRINUKI_LLM_MODEL="claude-haiku-4-5-20251001"    # デフォルト
+KIRINUKI_EMBEDDING_MODEL="text-embedding-3-small"  # デフォルト
 ```
 
+環境変数でも同様に設定できます（`export KIRINUKI_ANTHROPIC_API_KEY="sk-ant-..."` など）。環境変数が `.env` より優先されます。
+
 ## 使い方
+
+> ソースから使う場合は、各コマンドの先頭に `uv run` を付けてください（例: `uv run kirinuki channel list`）。
 
 ### チャンネル登録
 
@@ -132,6 +157,10 @@ uv run ruff format .
 
 # 型チェック
 uv run mypy src/
+
+# スタンドアロンバイナリのビルド
+uv run pyinstaller kirinuki.spec
+# 成果物: dist/kirinuki.exe
 ```
 
 ## ライセンス
