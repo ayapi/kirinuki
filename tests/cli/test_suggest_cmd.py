@@ -1,0 +1,112 @@
+"""suggest サブコマンドのテスト"""
+
+import json
+import sqlite3
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+from click.testing import CliRunner
+
+from kirinuki.cli.main import cli
+from kirinuki.infra.db import DatabaseClient
+from kirinuki.models.recommendation import SegmentRecommendation
+
+
+def _setup_test_db(tmp_path: Path) -> Path:
+    """テスト用DBを準備してパスを返す"""
+    db_path = tmp_path / "test.db"
+    db = DatabaseClient(db_path)
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "INSERT INTO channels (channel_id, name, url) VALUES (?, ?, ?)",
+        ("UC123", "テストチャンネル", "https://youtube.com/c/test"),
+    )
+    for i in range(3):
+        conn.execute(
+            """INSERT INTO videos (video_id, channel_id, title, published_at,
+               duration_seconds, subtitle_language, is_auto_subtitle)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (f"vid{i:03d}", "UC123", f"テスト動画 {i}", f"2026-01-{i+1:02d}T00:00:00",
+             3600, "ja", 0),
+        )
+        for j in range(2):
+            conn.execute(
+                "INSERT INTO segments (video_id, start_ms, end_ms, summary) VALUES (?, ?, ?, ?)",
+                (f"vid{i:03d}", j * 60000, (j + 1) * 60000, f"話題{j}: テスト話題"),
+            )
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+def _fake_evaluate(
+    video_id: str, segments: list[dict[str, str | int]], prompt_version: str
+) -> list[SegmentRecommendation]:
+    return [
+        SegmentRecommendation(
+            segment_id=seg["id"],
+            video_id=video_id,
+            start_time=seg["start_ms"] / 1000.0,
+            end_time=seg["end_ms"] / 1000.0,
+            score=8,
+            summary="テスト要約",
+            appeal="テスト魅力",
+            prompt_version=prompt_version,
+        )
+        for seg in segments
+    ]
+
+
+class TestSuggestCommand:
+    def test_help(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["suggest", "--help"])
+        assert result.exit_code == 0
+        assert "--count" in result.output
+        assert "--threshold" in result.output
+        assert "--json" in result.output
+
+    def test_text_output(self, tmp_path: Path) -> None:
+        db_path = _setup_test_db(tmp_path)
+        runner = CliRunner()
+        with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
+             patch("kirinuki.infra.llm.LLMClient.evaluate_segments", side_effect=_fake_evaluate):
+            result = runner.invoke(cli, ["suggest", "UC123", "--threshold", "1"])
+        assert result.exit_code == 0
+        assert "テスト動画" in result.output
+        assert "youtube.com" in result.output
+
+    def test_json_output(self, tmp_path: Path) -> None:
+        db_path = _setup_test_db(tmp_path)
+        runner = CliRunner()
+        with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
+             patch("kirinuki.infra.llm.LLMClient.evaluate_segments", side_effect=_fake_evaluate):
+            result = runner.invoke(cli, ["suggest", "UC123", "--json", "--threshold", "1"])
+        assert result.exit_code == 0
+        parsed = json.loads(result.output)
+        assert "videos" in parsed
+
+    def test_no_archives_error(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "empty.db"
+        db = DatabaseClient(db_path)
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            "INSERT INTO channels (channel_id, name, url) VALUES (?, ?, ?)",
+            ("UC_EMPTY", "空チャンネル", "https://youtube.com/c/empty"),
+        )
+        conn.commit()
+        conn.close()
+
+        runner = CliRunner()
+        with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path):
+            result = runner.invoke(cli, ["suggest", "UC_EMPTY"])
+        assert result.exit_code != 0 or "同期" in result.output
+
+    def test_channel_not_found_error(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        DatabaseClient(db_path)
+        runner = CliRunner()
+        with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path):
+            result = runner.invoke(cli, ["suggest", "UNKNOWN"])
+        assert result.exit_code != 0 or "登録" in result.output

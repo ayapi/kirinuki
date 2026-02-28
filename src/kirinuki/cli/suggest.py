@@ -1,0 +1,90 @@
+"""suggest サブコマンド"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import click
+
+from kirinuki.core.errors import ChannelNotFoundError, NoArchivesError
+from kirinuki.core.formatter import RecommendationFormatter
+from kirinuki.core.suggest import SuggestService
+from kirinuki.infra.db import DatabaseClient
+from kirinuki.infra.llm import LLMClient
+from kirinuki.models.config import AppConfig
+from kirinuki.models.recommendation import SuggestOptions
+
+
+def get_db_path() -> Path:
+    """DB パスを取得する（テスト時にモック差し替え可能）"""
+    config = AppConfig()
+    return config.db_path
+
+
+def _status(msg: str, is_json: bool) -> None:
+    """進捗メッセージを stderr に出力する"""
+    if not is_json:
+        click.echo(msg, err=True)
+
+
+@click.command()
+@click.argument("channel")
+@click.option("--count", default=3, show_default=True, help="対象アーカイブ件数")
+@click.option("--threshold", default=7, show_default=True, help="推薦スコア閾値（1〜10）")
+@click.option("--json", "output_json", is_flag=True, default=False, help="JSON形式で出力")
+def suggest(channel: str, count: int, threshold: int, output_json: bool) -> None:
+    """チャンネルの最新アーカイブから切り抜き候補を推薦する。
+
+    CHANNEL: チャンネルID（例: UC...）
+    """
+    db_path = get_db_path()
+    db = DatabaseClient(db_path)
+    config = AppConfig()
+    llm = LLMClient(api_key=config.anthropic_api_key, model=config.llm_model)
+
+    service = SuggestService(db=db, llm=llm)
+    formatter = RecommendationFormatter()
+    options = SuggestOptions(channel_id=channel, count=count, threshold=threshold)
+
+    try:
+        _status("対象動画を選定中...", output_json)
+
+        # まず動画一覧を取得して表示
+        videos = db.get_latest_videos(channel, count)
+        if videos:
+            _status(f"\n対象アーカイブ ({len(videos)}件):", output_json)
+            for v in videos:
+                _status(f"  - {v['title']} ({v.get('published_at', '不明')})", output_json)
+            _status("", output_json)
+
+        _status("セグメントを評価中...", output_json)
+        result = service.suggest(options)
+
+        if not result.videos:
+            msg = (
+                f"推薦候補: 0件（全{result.total_candidates}件中、閾値{threshold}以上の候補なし）\n"
+                f"閾値を下げて再実行してください（例: --threshold {max(1, threshold - 2)}）"
+            )
+            if output_json:
+                click.echo(formatter.format_json(result))
+            else:
+                click.echo(msg)
+            return
+
+        _status("結果を表示中...\n", output_json)
+
+        if output_json:
+            click.echo(formatter.format_json(result))
+        else:
+            click.echo(formatter.format_text(result))
+
+    except NoArchivesError as e:
+        click.echo(f"エラー: {e}", err=True)
+        sys.exit(1)
+    except ChannelNotFoundError as e:
+        click.echo(f"エラー: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"エラー: 予期しないエラーが発生しました: {e}", err=True)
+        sys.exit(1)

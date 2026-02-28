@@ -1,0 +1,148 @@
+"""yt-dlp Python APIラッパー"""
+
+import json
+import logging
+from dataclasses import dataclass
+from datetime import datetime, timezone
+
+import yt_dlp
+
+from kirinuki.models.config import AppConfig
+from kirinuki.models.domain import SubtitleEntry
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class VideoMeta:
+    video_id: str
+    title: str
+    published_at: datetime | None
+    duration_seconds: int
+
+
+@dataclass
+class SubtitleData:
+    video_id: str
+    language: str
+    is_auto_generated: bool
+    entries: list[SubtitleEntry]
+
+
+class YtdlpClient:
+    def __init__(self, config: AppConfig) -> None:
+        self._config = config
+
+    def _base_opts(self) -> dict:
+        opts: dict = {
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,
+        }
+        if self._config.cookie_file_path:
+            opts["cookiefile"] = str(self._config.cookie_file_path)
+        return opts
+
+    def list_channel_video_ids(self, channel_url: str) -> list[str]:
+        opts = self._base_opts()
+        opts["extract_flat"] = True
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(channel_url, download=False)
+        if not info or "entries" not in info:
+            return []
+        return [entry["id"] for entry in info["entries"] if entry and "id" in entry]
+
+    def fetch_video_metadata(self, video_id: str) -> VideoMeta:
+        opts = self._base_opts()
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+        assert info is not None
+        published_at = None
+        upload_date = info.get("upload_date")
+        if upload_date:
+            try:
+                published_at = datetime.strptime(upload_date, "%Y%m%d").replace(
+                    tzinfo=timezone.utc
+                )
+            except ValueError:
+                pass
+        return VideoMeta(
+            video_id=info["id"],
+            title=info.get("title", ""),
+            published_at=published_at,
+            duration_seconds=int(info.get("duration", 0)),
+        )
+
+    def fetch_subtitle(self, video_id: str) -> SubtitleData | None:
+        opts = self._base_opts()
+        opts["writesubtitles"] = True
+        opts["writeautomaticsub"] = True
+        opts["subtitleslangs"] = ["ja"]
+        opts["subtitlesformat"] = "json3"
+        url = f"https://www.youtube.com/watch?v={video_id}"
+
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+
+        if not info:
+            return None
+
+        requested = info.get("requested_subtitles")
+        if not requested:
+            return None
+
+        # 手動字幕優先判定
+        subtitles = info.get("subtitles", {})
+        auto_captions = info.get("automatic_captions", {})
+        is_auto = "ja" not in subtitles and "ja" in auto_captions
+
+        sub_info = requested.get("ja")
+        if not sub_info:
+            return None
+
+        raw_data = sub_info.get("data")
+        if not raw_data:
+            return None
+
+        entries = self._parse_json3(raw_data)
+        if not entries:
+            return None
+
+        return SubtitleData(
+            video_id=video_id,
+            language="ja",
+            is_auto_generated=is_auto,
+            entries=entries,
+        )
+
+    def _parse_json3(self, raw_data: str) -> list[SubtitleEntry]:
+        try:
+            data = json.loads(raw_data)
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse json3 subtitle data")
+            return []
+
+        entries = []
+        for event in data.get("events", []):
+            start_ms = event.get("tStartMs", 0)
+            duration_ms = event.get("dDurationMs", 0)
+            segs = event.get("segs", [])
+            text = "".join(seg.get("utf8", "") for seg in segs).strip()
+            if text:
+                entries.append(
+                    SubtitleEntry(start_ms=start_ms, duration_ms=duration_ms, text=text)
+                )
+        return entries
+
+    def resolve_channel_name(self, channel_url: str) -> tuple[str, str]:
+        """チャンネルURLからチャンネルIDと名前を取得する"""
+        opts = self._base_opts()
+        opts["extract_flat"] = True
+        opts["playlist_items"] = "0"
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(channel_url, download=False)
+        assert info is not None
+        channel_id = info.get("channel_id", info.get("id", ""))
+        channel_name = info.get("channel", info.get("title", info.get("uploader", "")))
+        return channel_id, channel_name
