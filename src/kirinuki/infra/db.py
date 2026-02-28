@@ -3,6 +3,7 @@
 import sqlite3
 from pathlib import Path
 
+from kirinuki.models.domain import ChannelSummary
 from kirinuki.models.recommendation import SegmentRecommendation
 
 
@@ -89,6 +90,32 @@ class DatabaseClient:
 
         conn.commit()
         conn.close()
+
+    def list_channels(self) -> list[ChannelSummary]:
+        """登録チャンネル一覧を取得する"""
+        conn = sqlite3.connect(str(self.db_path))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.execute(
+            """
+            SELECT c.channel_id, c.name, c.url, c.last_synced_at,
+                   COUNT(v.video_id) as video_count
+            FROM channels c
+            LEFT JOIN videos v ON c.channel_id = v.channel_id
+            GROUP BY c.channel_id
+            """
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [
+            ChannelSummary(
+                channel_id=row["channel_id"],
+                name=row["name"],
+                url=row["url"],
+                video_count=row["video_count"],
+                last_synced_at=row["last_synced_at"],
+            )
+            for row in rows
+        ]
 
     def get_latest_videos(self, channel_id: str, count: int) -> list[dict[str, str]]:
         """チャンネルの最新N件のアーカイブを配信日時降順で取得する"""
