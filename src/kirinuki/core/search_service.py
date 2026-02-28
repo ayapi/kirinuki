@@ -2,6 +2,7 @@
 
 import logging
 
+from kirinuki.core.clip_utils import build_youtube_url
 from kirinuki.infra.database import Database
 from kirinuki.infra.embedding_provider import OpenAIEmbeddingProvider
 from kirinuki.models.domain import SearchResult
@@ -74,12 +75,9 @@ class SearchService:
                     start_time_ms=start_ms,
                     end_time_ms=r["end_ms"],
                     summary=r["summary"],
-                    youtube_url=self._generate_youtube_url(video_id, start_ms),
+                    youtube_url=build_youtube_url(video_id, start_ms),
                     score=round(score, 4),
                 )
             )
         return results
 
-    def _generate_youtube_url(self, video_id: str, start_ms: int) -> str:
-        start_seconds = start_ms // 1000
-        return f"https://www.youtube.com/watch?v={video_id}&t={start_seconds}"

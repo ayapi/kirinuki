@@ -74,10 +74,10 @@ class TestSearch:
 
 
 class TestUrlGeneration:
-    def test_generate_youtube_url(self, service):
-        url = service._generate_youtube_url("abc123", 90000)
-        assert url == "https://www.youtube.com/watch?v=abc123&t=90"
-
-    def test_generate_youtube_url_zero(self, service):
-        url = service._generate_youtube_url("abc123", 0)
-        assert url == "https://www.youtube.com/watch?v=abc123&t=0"
+    def test_search_results_use_shared_url_builder(self, service, mock_embedding):
+        """SearchServiceが共通のbuild_youtube_urlを使用していることを確認"""
+        mock_embedding.embed.return_value = [[0.85] * 1536]
+        results = service.search("マインクラフト")
+        for r in results:
+            assert r.youtube_url.startswith("https://www.youtube.com/watch?v=")
+            assert "&t=" in r.youtube_url

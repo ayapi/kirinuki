@@ -129,6 +129,31 @@ class TestSegments:
         assert result.exit_code == 0
         assert "自己紹介" in result.output
 
+    @patch("kirinuki.cli.main.create_app_context")
+    def test_segments_include_youtube_url(self, mock_ctx, runner):
+        mock_context = MagicMock()
+        mock_context.segmentation_service.list_segments.return_value = [
+            Segment(id=1, video_id="vid1", start_ms=90000, end_ms=180000, summary="話題A"),
+        ]
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = runner.invoke(cli, ["segments", "vid1"])
+        assert result.exit_code == 0
+        assert "https://www.youtube.com/watch?v=vid1&t=90" in result.output
+
+    @patch("kirinuki.cli.main.create_app_context")
+    def test_segments_empty_no_url(self, mock_ctx, runner):
+        mock_context = MagicMock()
+        mock_context.segmentation_service.list_segments.return_value = []
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = runner.invoke(cli, ["segments", "vid1"])
+        assert result.exit_code == 0
+        assert "セグメントはありません" in result.output
+        assert "youtube.com" not in result.output
+
 
 class TestHelp:
     def test_main_help(self, runner):

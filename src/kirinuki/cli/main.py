@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import click
 
 from kirinuki.core.channel_service import ChannelService
+from kirinuki.core.clip_utils import build_youtube_url
 from kirinuki.core.search_service import SearchService
 from kirinuki.core.segmentation_service import SegmentationService
 from kirinuki.core.sync_service import SyncService
@@ -169,10 +170,12 @@ def segments(video_id: str) -> None:
             start_sec = (s.start_ms % 60000) // 1000
             end_min = s.end_ms // 60000
             end_sec = (s.end_ms % 60000) // 1000
+            url = build_youtube_url(video_id, s.start_ms)
             click.echo(
                 f"  {start_min:02d}:{start_sec:02d} - {end_min:02d}:{end_sec:02d}"
                 f" | {s.summary}"
             )
+            click.echo(f"     {url}")
 
 
 

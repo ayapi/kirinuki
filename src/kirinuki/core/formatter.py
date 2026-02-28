@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from kirinuki.core.clip_utils import build_youtube_url
 from kirinuki.models.recommendation import SuggestResult, VideoWithRecommendations
 
 
@@ -19,11 +20,6 @@ def _format_time(seconds: float) -> str:
 
 
 class RecommendationFormatter:
-    @staticmethod
-    def build_youtube_url(video_id: str, start_seconds: int) -> str:
-        """タイムスタンプ付きYouTube URLを生成する。"""
-        return f"https://www.youtube.com/watch?v={video_id}&t={start_seconds}"
-
     def format_text(self, result: SuggestResult) -> str:
         """推薦結果を人間可読テキストにフォーマットする。"""
         if not result.videos:
@@ -53,7 +49,7 @@ class RecommendationFormatter:
             for rec in sorted_recs:
                 start_str = _format_time(rec.start_time)
                 end_str = _format_time(rec.end_time)
-                url = self.build_youtube_url(rec.video_id, int(rec.start_time))
+                url = build_youtube_url(rec.video_id, int(rec.start_time * 1000))
                 lines.append(f"  [{rec.score}/10] {start_str} 〜 {end_str}")
                 lines.append(f"    要約: {rec.summary}")
                 lines.append(f"    魅力: {rec.appeal}")
@@ -87,7 +83,7 @@ class RecommendationFormatter:
                     "score": r.score,
                     "summary": r.summary,
                     "appeal": r.appeal,
-                    "youtube_url": self.build_youtube_url(r.video_id, int(r.start_time)),
+                    "youtube_url": build_youtube_url(r.video_id, int(r.start_time * 1000)),
                 }
                 for r in video.recommendations
             ],

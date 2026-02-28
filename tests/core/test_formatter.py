@@ -50,20 +50,6 @@ def _make_result(
     return SuggestResult(videos=videos, total_candidates=total, filtered_count=total)
 
 
-class TestBuildYoutubeUrl:
-    def test_normal_url(self) -> None:
-        url = RecommendationFormatter.build_youtube_url("abc123", 120)
-        assert url == "https://www.youtube.com/watch?v=abc123&t=120"
-
-    def test_zero_seconds(self) -> None:
-        url = RecommendationFormatter.build_youtube_url("abc123", 0)
-        assert url == "https://www.youtube.com/watch?v=abc123&t=0"
-
-    def test_large_seconds(self) -> None:
-        url = RecommendationFormatter.build_youtube_url("abc123", 7200)
-        assert url == "https://www.youtube.com/watch?v=abc123&t=7200"
-
-
 class TestFormatText:
     def test_contains_video_header(self) -> None:
         fmt = RecommendationFormatter()

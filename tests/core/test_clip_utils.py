@@ -3,6 +3,7 @@
 import pytest
 
 from kirinuki.core.clip_utils import (
+    build_youtube_url,
     extract_video_id,
     format_default_filename,
     parse_time_str,
@@ -83,6 +84,29 @@ class TestParseTimeStr:
 
     def test_hhmmss_with_millis(self) -> None:
         assert parse_time_str("01:01:01.5") == 3661.5
+
+
+class TestBuildYoutubeUrl:
+    def test_normal_ms(self) -> None:
+        url = build_youtube_url("abc123", 90000)
+        assert url == "https://www.youtube.com/watch?v=abc123&t=90"
+
+    def test_zero_ms(self) -> None:
+        url = build_youtube_url("abc123", 0)
+        assert url == "https://www.youtube.com/watch?v=abc123&t=0"
+
+    def test_large_value(self) -> None:
+        url = build_youtube_url("abc123", 7200000)
+        assert url == "https://www.youtube.com/watch?v=abc123&t=7200"
+
+    def test_truncates_ms_to_seconds(self) -> None:
+        """1999ms → 1s（切り捨て確認）"""
+        url = build_youtube_url("abc123", 1999)
+        assert url == "https://www.youtube.com/watch?v=abc123&t=1"
+
+    def test_exact_second_boundary(self) -> None:
+        url = build_youtube_url("abc123", 2000)
+        assert url == "https://www.youtube.com/watch?v=abc123&t=2"
 
 
 class TestFormatDefaultFilename:

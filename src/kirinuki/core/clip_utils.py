@@ -65,6 +65,20 @@ def parse_time_str(time_str: str) -> float:
         return float(time_str)
 
 
+def build_youtube_url(video_id: str, start_ms: int) -> str:
+    """タイムスタンプ付きYouTube URLを生成する。
+
+    Args:
+        video_id: YouTube動画ID
+        start_ms: 開始時刻（ミリ秒）
+
+    Returns:
+        https://www.youtube.com/watch?v={video_id}&t={start_seconds} 形式の文字列
+    """
+    start_seconds = start_ms // 1000
+    return f"https://www.youtube.com/watch?v={video_id}&t={start_seconds}"
+
+
 def format_default_filename(
     video_id: str, start_seconds: float, end_seconds: float, output_format: str
 ) -> str:
