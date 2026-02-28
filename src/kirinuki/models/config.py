@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings
 
 
 class AppConfig(BaseSettings):
-    model_config = {"env_prefix": "KIRINUKI_"}
+    model_config = {"env_prefix": "KIRINUKI_", "env_file": ".env", "env_file_encoding": "utf-8"}
 
     anthropic_api_key: str = ""
     openai_api_key: str = ""

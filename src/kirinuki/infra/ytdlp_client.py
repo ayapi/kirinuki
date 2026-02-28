@@ -4,9 +4,11 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
 import yt_dlp
 
+from kirinuki.core.errors import AuthenticationRequiredError, VideoDownloadError
 from kirinuki.models.config import AppConfig
 from kirinuki.models.domain import SubtitleEntry
 
@@ -134,6 +136,43 @@ class YtdlpClient:
                     SubtitleEntry(start_ms=start_ms, duration_ms=duration_ms, text=text)
                 )
         return entries
+
+    def download_video(
+        self,
+        video_id: str,
+        output_dir: Path,
+        cookie_file: Path | None = None,
+    ) -> Path:
+        """動画を指定ディレクトリにダウンロードし、ファイルパスを返す。"""
+        opts: dict = {
+            "quiet": True,
+            "no_warnings": True,
+            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]",
+            "outtmpl": str(output_dir / f"{video_id}.%(ext)s"),
+        }
+        if cookie_file:
+            opts["cookiefile"] = str(cookie_file)
+        elif self._config.cookie_file_path:
+            opts["cookiefile"] = str(self._config.cookie_file_path)
+
+        url = f"https://www.youtube.com/watch?v={video_id}"
+
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+        except yt_dlp.DownloadError as e:
+            msg = str(e)
+            if "Sign in" in msg or "login" in msg.lower() or "members-only" in msg.lower():
+                raise AuthenticationRequiredError(
+                    f"認証が必要です。Cookieファイルを設定してください: {msg}"
+                ) from e
+            raise VideoDownloadError(
+                f"動画のダウンロードに失敗しました: {msg}"
+            ) from e
+
+        assert info is not None
+        filepath = info["requested_downloads"][0]["filepath"]
+        return Path(filepath)
 
     def resolve_channel_name(self, channel_url: str) -> tuple[str, str]:
         """チャンネルURLからチャンネルIDと名前を取得する"""

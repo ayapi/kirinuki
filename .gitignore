@@ -29,5 +29,8 @@ Thumbs.db
 # uv
 uv.lock
 
+# Environment variables
+.env
+
 # App data
 *.db
