@@ -4,7 +4,9 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yt_dlp
 
+from kirinuki.core.errors import AuthenticationRequiredError
 from kirinuki.infra.ytdlp_client import YtdlpClient
 from kirinuki.models.config import AppConfig
 
@@ -107,7 +109,7 @@ class TestFetchSubtitle:
 
 
 class TestCookieAuth:
-    def test_cookie_option_set(self, tmp_path):
+    def test_cookie_option_set_when_file_exists(self, tmp_path):
         cookie_file = tmp_path / "cookies.txt"
         cookie_file.write_text("# Netscape cookie file")
         config = AppConfig(
@@ -118,6 +120,51 @@ class TestCookieAuth:
         opts = c._base_opts()
         assert opts.get("cookiefile") == str(cookie_file)
 
-    def test_no_cookie_option(self, client):
-        opts = client._base_opts()
+    def test_no_cookie_option_when_file_not_exists(self, tmp_path):
+        config = AppConfig(
+            db_path=tmp_path / "data.db",
+            cookie_file_path=tmp_path / "nonexistent_cookies.txt",
+        )
+        c = YtdlpClient(config)
+        opts = c._base_opts()
         assert "cookiefile" not in opts
+
+
+class TestAuthenticationWarning:
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_auth_error_includes_cookie_hint_when_not_set(self, mock_ydl_cls, tmp_path):
+        config = AppConfig(
+            db_path=tmp_path / "data.db",
+            cookie_file_path=tmp_path / "nonexistent_cookies.txt",
+        )
+        client = YtdlpClient(config)
+
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.side_effect = yt_dlp.DownloadError("Sign in to confirm")
+
+        with pytest.raises(AuthenticationRequiredError) as exc_info:
+            client.download_video("vid1", tmp_path)
+
+        assert "cookie set" in str(exc_info.value)
+
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_auth_error_without_cookie_hint_when_set(self, mock_ydl_cls, tmp_path):
+        cookie_file = tmp_path / "cookies.txt"
+        cookie_file.write_text("# Netscape cookie file")
+        config = AppConfig(
+            db_path=tmp_path / "data.db",
+            cookie_file_path=cookie_file,
+        )
+        client = YtdlpClient(config)
+
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.side_effect = yt_dlp.DownloadError("Sign in to confirm")
+
+        with pytest.raises(AuthenticationRequiredError) as exc_info:
+            client.download_video("vid1", tmp_path)
+
+        assert "cookie set" not in str(exc_info.value)

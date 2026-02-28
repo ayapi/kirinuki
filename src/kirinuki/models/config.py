@@ -11,7 +11,9 @@ class AppConfig(BaseSettings):
 
     anthropic_api_key: str = ""
     openai_api_key: str = ""
-    cookie_file_path: Path | None = None
+    cookie_file_path: Path = Field(
+        default_factory=lambda: Path.home() / ".kirinuki" / "cookies.txt",
+    )
     db_path: Path = Field(default_factory=lambda: Path.home() / ".kirinuki" / "data.db")
     llm_model: str = "claude-haiku-4-5-20251001"
     embedding_model: str = "text-embedding-3-small"
