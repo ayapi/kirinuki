@@ -12,6 +12,7 @@ from kirinuki.models.domain import (
     Segment,
     SubtitleEntry,
     SubtitleLine,
+    SyncResult,
     Video,
 )
 
@@ -75,3 +76,29 @@ class TestDomainModels:
             score=0.95,
         )
         assert r.score == 0.95
+
+    def test_sync_result_new_fields(self) -> None:
+        r = SyncResult(auth_errors=3, unavailable_skipped=5)
+        assert r.auth_errors == 3
+        assert r.unavailable_skipped == 5
+
+    def test_sync_result_defaults(self) -> None:
+        r = SyncResult()
+        assert r.auth_errors == 0
+        assert r.unavailable_skipped == 0
+
+
+class TestVideoUnavailableError:
+    def test_error_attributes(self) -> None:
+        from kirinuki.core.errors import VideoUnavailableError
+
+        err = VideoUnavailableError("vid1", "Video has been removed")
+        assert err.video_id == "vid1"
+        assert "vid1" in str(err)
+        assert "Video has been removed" in str(err)
+
+    def test_is_segment_extractor_error(self) -> None:
+        from kirinuki.core.errors import SegmentExtractorError, VideoUnavailableError
+
+        err = VideoUnavailableError("vid1", "reason")
+        assert isinstance(err, SegmentExtractorError)

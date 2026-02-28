@@ -2,7 +2,9 @@
 
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 
+from kirinuki.core.errors import AuthenticationRequiredError, VideoUnavailableError
 from kirinuki.core.segmentation_service import SegmentationService
 from kirinuki.infra.database import Database
 from kirinuki.infra.ytdlp_client import YtdlpClient
@@ -17,10 +19,12 @@ class SyncService:
         db: Database,
         ytdlp_client: YtdlpClient,
         segmentation_service: SegmentationService,
+        cookie_file_path: Path | None = None,
     ) -> None:
         self._db = db
         self._ytdlp = ytdlp_client
         self._segmentation = segmentation_service
+        self._cookie_file_path = cookie_file_path
 
     def sync_all(self) -> SyncResult:
         channels = self._db.list_channels()
@@ -30,6 +34,8 @@ class SyncService:
             total.already_synced += result.already_synced
             total.newly_synced += result.newly_synced
             total.skipped += result.skipped
+            total.auth_errors += result.auth_errors
+            total.unavailable_skipped += result.unavailable_skipped
             total.errors.extend(result.errors)
         return total
 
@@ -40,17 +46,33 @@ class SyncService:
 
         result = SyncResult()
 
+        # cookie更新時にauth記録を自動リセット
+        self._reset_auth_if_cookie_updated(channel_id)
+
         # flat extractionでチャンネル全動画IDを取得
         all_video_ids = self._ytdlp.list_channel_video_ids(channel.url)
 
-        # DBと比較して新規IDを特定
+        # DBと比較して新規IDを特定（unavailable記録済みも除外）
         existing_ids = self._db.get_existing_video_ids(channel_id)
-        new_ids = [vid for vid in all_video_ids if vid not in existing_ids]
+        unavailable_ids = self._db.get_unavailable_video_ids(channel_id)
+        exclude_ids = existing_ids | unavailable_ids
+        new_ids = [vid for vid in all_video_ids if vid not in exclude_ids]
         result.already_synced = len(existing_ids)
+        result.unavailable_skipped = len(
+            [vid for vid in all_video_ids if vid in unavailable_ids]
+        )
 
         for video_id in new_ids:
             try:
                 self._sync_single_video(video_id, channel_id, result)
+            except AuthenticationRequiredError as e:
+                logger.warning("Auth required for video %s: %s", video_id, e)
+                self._db.save_unavailable_video(video_id, channel_id, "auth_required", str(e))
+                result.auth_errors += 1
+            except VideoUnavailableError as e:
+                logger.warning("Video unavailable %s: %s", video_id, e)
+                self._db.save_unavailable_video(video_id, channel_id, "unavailable", str(e))
+                result.errors.append(SyncError(video_id=video_id, reason=str(e)))
             except Exception as e:
                 logger.error("Failed to sync video %s: %s", video_id, e)
                 result.errors.append(SyncError(video_id=video_id, reason=str(e)))
@@ -59,6 +81,20 @@ class SyncService:
         self._db.update_channel_last_synced(channel_id, datetime.now(tz=timezone.utc))
 
         return result
+
+    def _reset_auth_if_cookie_updated(self, channel_id: str) -> None:
+        if self._cookie_file_path is None or not self._cookie_file_path.exists():
+            return
+        recorded_at = self._db.get_auth_unavailable_recorded_at(channel_id)
+        if recorded_at is None:
+            return
+        cookie_mtime = datetime.fromtimestamp(
+            self._cookie_file_path.stat().st_mtime, tz=timezone.utc
+        )
+        if cookie_mtime > recorded_at:
+            cleared = self._db.clear_unavailable_by_type(channel_id, "auth_required")
+            if cleared > 0:
+                logger.info("Cleared %d auth-required records for %s (cookie updated)", cleared, channel_id)
 
     def _sync_single_video(self, video_id: str, channel_id: str, result: SyncResult) -> None:
         # メタデータ取得

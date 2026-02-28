@@ -17,6 +17,14 @@ class AuthenticationRequiredError(SegmentExtractorError):
     """メンバー限定動画で認証情報が未設定"""
 
 
+class VideoUnavailableError(SegmentExtractorError):
+    """動画がunavailable（削除・非公開等）"""
+
+    def __init__(self, video_id: str, reason: str) -> None:
+        self.video_id = video_id
+        super().__init__(f"Video unavailable ({video_id}): {reason}")
+
+
 class VideoDownloadError(SegmentExtractorError):
     """動画ダウンロード失敗"""
 

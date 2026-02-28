@@ -43,7 +43,12 @@ def create_app_context():
 
     channel_svc = ChannelService(db=db, ytdlp_client=ytdlp)
     segmentation_svc = SegmentationService(db=db, llm_client=llm, embedding_provider=embedding)
-    sync_svc = SyncService(db=db, ytdlp_client=ytdlp, segmentation_service=segmentation_svc)
+    sync_svc = SyncService(
+        db=db,
+        ytdlp_client=ytdlp,
+        segmentation_service=segmentation_svc,
+        cookie_file_path=config.cookie_file_path,
+    )
     search_svc = SearchService(db=db, embedding_provider=embedding)
 
     ctx = AppContext(
@@ -119,15 +124,23 @@ def sync() -> None:
     with create_app_context() as ctx:
         click.echo("同期を開始します...")
         result = ctx.sync_service.sync_all()
-        click.echo(
-            f"同期完了: 取得済み {result.already_synced}件"
-            f" / 新規 {result.newly_synced}件"
-            f" / スキップ {result.skipped}件"
-        )
+        summary_parts = [
+            f"取得済み {result.already_synced}件",
+            f"新規 {result.newly_synced}件",
+            f"スキップ {result.skipped}件",
+        ]
+        if result.unavailable_skipped > 0:
+            summary_parts.append(f"unavailableスキップ {result.unavailable_skipped}件")
+        click.echo(f"同期完了: {' / '.join(summary_parts)}")
         if result.errors:
             click.echo(f"エラー: {len(result.errors)}件")
             for err in result.errors:
                 click.echo(f"  - {err.video_id}: {err.reason}")
+        if result.auth_errors > 0:
+            click.echo(
+                f"メンバー限定動画の認証に失敗しました（{result.auth_errors}件）。"
+                "Cookieを更新してください: kirinuki cookie set"
+            )
 
 
 @cli.command()
@@ -177,6 +190,24 @@ def segments(video_id: str) -> None:
             )
             click.echo(f"     {url}")
 
+
+
+@cli.group()
+def unavailable() -> None:
+    """unavailable動画の記録管理"""
+    pass
+
+
+@unavailable.command("reset")
+@click.option("--channel", "channel_id", default=None, help="特定チャンネルのみリセット")
+def unavailable_reset(channel_id: str | None) -> None:
+    """unavailable記録をリセットする"""
+    if channel_id is None:
+        if not click.confirm("全チャンネルのunavailable記録をリセットしますか？"):
+            raise SystemExit(1)
+    with create_app_context() as ctx:
+        cleared = ctx.db.clear_all_unavailable(channel_id)
+        click.echo(f"unavailable記録を{cleared}件リセットしました。")
 
 
 cli.add_command(cookie_cmd, "cookie")

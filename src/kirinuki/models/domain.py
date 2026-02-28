@@ -91,4 +91,6 @@ class SyncResult(BaseModel):
     already_synced: int = 0
     newly_synced: int = 0
     skipped: int = 0
+    auth_errors: int = 0
+    unavailable_skipped: int = 0
     errors: list[SyncError] = []

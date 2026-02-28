@@ -6,7 +6,9 @@
       "mcp__playwright__browser_evaluate",
       "Bash(test:*)",
       "Bash(git worktree:*)",
-      "Bash(git branch:*)"
+      "Bash(git branch:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)"
     ]
   }
 }
