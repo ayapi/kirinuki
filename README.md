@@ -51,17 +51,20 @@ uv sync
 
 ## 設定
 
-環境変数で設定します。接頭辞は `KIRINUKI_` です。
+環境変数または `~/.kirinuki/.env` ファイルで設定します。接頭辞は `KIRINUKI_` です。
 
 ```bash
-export KIRINUKI_ANTHROPIC_API_KEY="sk-ant-..."
-export KIRINUKI_OPENAI_API_KEY="sk-..."
+# ~/.kirinuki/.env に記載する場合
+KIRINUKI_ANTHROPIC_API_KEY="sk-ant-..."
+KIRINUKI_OPENAI_API_KEY="sk-..."
 
 # 任意
-export KIRINUKI_DB_PATH="/path/to/data.db"               # デフォルト: ~/.kirinuki/data.db
-export KIRINUKI_LLM_MODEL="claude-haiku-4-5-20251001"    # デフォルト
-export KIRINUKI_EMBEDDING_MODEL="text-embedding-3-small"  # デフォルト
+KIRINUKI_DB_PATH="/path/to/data.db"               # デフォルト: ~/.kirinuki/data.db
+KIRINUKI_LLM_MODEL="claude-haiku-4-5-20251001"    # デフォルト
+KIRINUKI_EMBEDDING_MODEL="text-embedding-3-small"  # デフォルト
 ```
+
+環境変数でも同様に設定できます（`export KIRINUKI_ANTHROPIC_API_KEY="sk-ant-..."` など）。環境変数が `.env` より優先されます。
 
 ## 使い方
 
