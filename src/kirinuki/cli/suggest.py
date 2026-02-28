@@ -7,6 +7,7 @@ from pathlib import Path
 
 import click
 
+from kirinuki.cli.resolve import resolve_channel_id
 from kirinuki.core.errors import ChannelNotFoundError, NoArchivesError
 from kirinuki.core.formatter import RecommendationFormatter
 from kirinuki.core.suggest import SuggestService
@@ -29,17 +30,18 @@ def _status(msg: str, is_json: bool) -> None:
 
 
 @click.command()
-@click.argument("channel")
+@click.argument("channel", default=None, required=False)
 @click.option("--count", default=3, show_default=True, help="対象アーカイブ件数")
 @click.option("--threshold", default=7, show_default=True, help="推薦スコア閾値（1〜10）")
 @click.option("--json", "output_json", is_flag=True, default=False, help="JSON形式で出力")
-def suggest(channel: str, count: int, threshold: int, output_json: bool) -> None:
+def suggest(channel: str | None, count: int, threshold: int, output_json: bool) -> None:
     """チャンネルの最新アーカイブから切り抜き候補を推薦する。
 
-    CHANNEL: チャンネルID（例: UC...）
+    CHANNEL: チャンネルID（例: UC...）。省略時は登録チャンネルが1つなら自動選択。
     """
     db_path = get_db_path()
     db = DatabaseClient(db_path)
+    channel = resolve_channel_id(channel, db)
     config = AppConfig()
     llm = LLMClient(api_key=config.anthropic_api_key, model=config.llm_model)
 

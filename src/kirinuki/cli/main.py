@@ -15,6 +15,7 @@ from kirinuki.infra.embedding_provider import OpenAIEmbeddingProvider
 from kirinuki.infra.llm_client import LlmClient
 from kirinuki.infra.ytdlp_client import YtdlpClient
 from kirinuki.cli.cookie import cookie as cookie_cmd
+from kirinuki.cli.resolve import resolve_channel_id
 from kirinuki.cli.suggest import suggest as suggest_cmd
 from kirinuki.models.config import AppConfig
 
@@ -96,10 +97,11 @@ def channel_list() -> None:
 
 
 @channel.command("videos")
-@click.argument("channel_id")
-def channel_videos(channel_id: str) -> None:
+@click.argument("channel_id", default=None, required=False)
+def channel_videos(channel_id: str | None) -> None:
     """チャンネルの同期済み動画一覧を表示する"""
     with create_app_context() as ctx:
+        channel_id = resolve_channel_id(channel_id, ctx.db)
         videos = ctx.channel_service.list_videos(channel_id)
         if not videos:
             click.echo("同期済み動画はありません")
