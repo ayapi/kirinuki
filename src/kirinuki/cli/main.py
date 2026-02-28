@@ -14,6 +14,7 @@ from kirinuki.infra.database import Database
 from kirinuki.infra.embedding_provider import OpenAIEmbeddingProvider
 from kirinuki.infra.llm_client import LlmClient
 from kirinuki.infra.ytdlp_client import YtdlpClient
+from kirinuki.cli.cookie import cookie as cookie_cmd
 from kirinuki.cli.suggest import suggest as suggest_cmd
 from kirinuki.models.config import AppConfig
 
@@ -173,6 +174,7 @@ def segments(video_id: str) -> None:
 
 
 
+cli.add_command(cookie_cmd, "cookie")
 cli.add_command(suggest_cmd, "suggest")
 
 

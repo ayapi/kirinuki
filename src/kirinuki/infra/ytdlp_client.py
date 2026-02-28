@@ -41,7 +41,7 @@ class YtdlpClient:
             "no_warnings": True,
             "skip_download": True,
         }
-        if self._config.cookie_file_path:
+        if self._config.cookie_file_path.exists():
             opts["cookiefile"] = str(self._config.cookie_file_path)
         return opts
 
@@ -152,7 +152,7 @@ class YtdlpClient:
         }
         if cookie_file:
             opts["cookiefile"] = str(cookie_file)
-        elif self._config.cookie_file_path:
+        elif self._config.cookie_file_path.exists():
             opts["cookiefile"] = str(self._config.cookie_file_path)
 
         url = f"https://www.youtube.com/watch?v={video_id}"
@@ -163,8 +163,11 @@ class YtdlpClient:
         except yt_dlp.DownloadError as e:
             msg = str(e)
             if "Sign in" in msg or "login" in msg.lower() or "members-only" in msg.lower():
+                hint = msg
+                if not self._config.cookie_file_path.exists():
+                    hint += "\ncookiesが未設定です。`kirinuki cookie set` で設定してください。"
                 raise AuthenticationRequiredError(
-                    f"認証が必要です。Cookieファイルを設定してください: {msg}"
+                    f"認証が必要です。Cookieファイルを設定してください: {hint}"
                 ) from e
             raise VideoDownloadError(
                 f"動画のダウンロードに失敗しました: {msg}"

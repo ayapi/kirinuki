@@ -22,16 +22,14 @@ class TestAppConfig:
         assert config.llm_model == "claude-haiku-4-5-20251001"
         assert config.embedding_model == "text-embedding-3-small"
         assert config.embedding_dimensions == 1536
-        assert config.cookie_file_path is None
+        assert config.cookie_file_path == Path.home() / ".kirinuki" / "cookies.txt"
 
     def test_from_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("KIRINUKI_ANTHROPIC_API_KEY", "test-key")
         monkeypatch.setenv("KIRINUKI_OPENAI_API_KEY", "test-openai")
-        monkeypatch.setenv("KIRINUKI_COOKIE_FILE_PATH", "/tmp/cookies.txt")
         config = AppConfig(db_path=tmp_path / "data.db")
         assert config.anthropic_api_key == "test-key"
         assert config.openai_api_key == "test-openai"
-        assert config.cookie_file_path == Path("/tmp/cookies.txt")
 
 
 class TestDomainModels:
