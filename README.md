@@ -89,8 +89,8 @@ kirinuki segments <video_id>
 メンバー限定配信を取得するには Cookie の設定が必要です。Cookie は `~/.kirinuki/cookies.txt` に保存されます。
 
 ```bash
-# Cookie を設定（標準入力から読み取り）
-cat cookies.txt | kirinuki cookie set
+# Cookie を設定（実行後にペーストして Ctrl+D / Windows: Ctrl+Z → Enter で確定）
+kirinuki cookie set
 
 # Cookie の設定状態を確認
 kirinuki cookie status
