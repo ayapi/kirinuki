@@ -4,7 +4,9 @@
       "mcp__playwright__browser_navigate",
       "mcp__playwright__browser_run_code",
       "mcp__playwright__browser_evaluate",
-      "Bash(test:*)"
+      "Bash(test:*)",
+      "Bash(git worktree:*)",
+      "Bash(git branch:*)"
     ]
   }
 }
