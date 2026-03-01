@@ -1,8 +1,23 @@
 """ドメインモデル定義"""
 
 from datetime import datetime
+from enum import Enum
 
 from pydantic import BaseModel
+
+
+class MatchType(str, Enum):
+    KEYWORD = "keyword"
+    SEMANTIC = "semantic"
+    HYBRID = "hybrid"
+
+
+class SkipReason(str, Enum):
+    NO_SUBTITLE_AVAILABLE = "no_subtitle_available"
+    NO_TARGET_LANGUAGE = "no_target_language"
+    PARSE_FAILED = "parse_failed"
+    FETCH_FAILED = "fetch_failed"
+    NOT_LIVE_ARCHIVE = "not_live_archive"
 
 
 class Channel(BaseModel):
@@ -80,6 +95,9 @@ class SearchResult(BaseModel):
     summary: str
     youtube_url: str
     score: float = 0.0
+    match_type: MatchType | None = None
+    snippet: str | None = None
+    similarity: float | None = None
 
 
 class SyncError(BaseModel):
@@ -93,4 +111,8 @@ class SyncResult(BaseModel):
     skipped: int = 0
     auth_errors: int = 0
     unavailable_skipped: int = 0
+    not_live_skipped: int = 0
+    segmentation_retried: int = 0
+    segmentation_retry_failed: int = 0
     errors: list[SyncError] = []
+    skip_reasons: dict[str, int] = {}

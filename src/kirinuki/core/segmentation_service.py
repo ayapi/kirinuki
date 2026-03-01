@@ -9,8 +9,8 @@ from kirinuki.models.domain import Segment, SubtitleEntry, TopicSegment
 
 logger = logging.getLogger(__name__)
 
-CHUNK_MINUTES = 45
-OVERLAP_MINUTES = 5
+CHUNK_MINUTES = 20
+OVERLAP_MINUTES = 3
 
 
 class SegmentationService:
@@ -44,7 +44,11 @@ class SegmentationService:
         return self._db.list_segments(video_id)
 
     def segment_video_from_entries(
-        self, video_id: str, entries: list[SubtitleEntry], duration_seconds: int
+        self,
+        video_id: str,
+        entries: list[SubtitleEntry],
+        duration_seconds: int,
+        max_segment_ms: int = 300_000,
     ) -> list[Segment]:
         """字幕エントリーから話題セグメンテーションを実行する（長時間配信のチャンク分割対応）"""
         if not entries:
@@ -67,6 +71,9 @@ class SegmentationService:
         if not segments_raw:
             return []
 
+        # 長すぎるセグメントの再分割
+        segments_raw = self._resplit_oversized(segments_raw, entries, max_segment_ms)
+
         summaries = [s.summary for s in segments_raw]
         vectors = self._embedding.embed(summaries)
 
@@ -80,6 +87,57 @@ class SegmentationService:
 
     def list_segments(self, video_id: str) -> list[Segment]:
         return self._db.list_segments(video_id)
+
+    def resegment_video(self, video_id: str, max_segment_ms: int = 300_000) -> list[Segment]:
+        """既存セグメントを削除して再セグメンテーションを実行する。"""
+        self._db.delete_segments(video_id)
+        entries = self._db.get_subtitle_entries(video_id)
+        if not entries:
+            return []
+        video = self._db.get_video(video_id)
+        if video is None:
+            return []
+        return self.segment_video_from_entries(
+            video_id, entries, video.duration_seconds, max_segment_ms=max_segment_ms
+        )
+
+    def _resplit_oversized(
+        self,
+        segments: list[TopicSegment],
+        entries: list[SubtitleEntry],
+        max_segment_ms: int,
+    ) -> list[TopicSegment]:
+        """max_segment_ms超のセグメントを再分割する（1パスのみ）。"""
+        result: list[TopicSegment] = []
+        for seg in segments:
+            duration = seg.end_ms - seg.start_ms
+            if duration <= max_segment_ms:
+                result.append(seg)
+                continue
+
+            # 該当セグメントの時間範囲のSubtitleEntryを抽出
+            seg_entries = [
+                e for e in entries if e.start_ms >= seg.start_ms and e.start_ms < seg.end_ms
+            ]
+            if not seg_entries:
+                result.append(seg)
+                continue
+
+            text = self._build_subtitle_text(seg_entries)
+            try:
+                sub_segments = self._llm.analyze_topics_resplit(text, seg.summary)
+            except Exception:
+                logger.warning("Resplit failed for segment %s, keeping original", seg.summary)
+                result.append(seg)
+                continue
+
+            # 2つ以上に分割できた場合のみ採用
+            if len(sub_segments) >= 2:
+                result.extend(sub_segments)
+            else:
+                result.append(seg)
+
+        return result
 
     def _build_subtitle_text(self, entries: list[SubtitleEntry]) -> str:
         lines = []

@@ -8,8 +8,10 @@ import pytest
 from kirinuki.models.config import AppConfig
 from kirinuki.models.domain import (
     Channel,
+    MatchType,
     SearchResult,
     Segment,
+    SkipReason,
     SubtitleEntry,
     SubtitleLine,
     SyncResult,
@@ -77,6 +79,65 @@ class TestDomainModels:
         )
         assert r.score == 0.95
 
+    def test_search_result_match_type_keyword(self) -> None:
+        r = SearchResult(
+            video_title="Test Video",
+            channel_name="Test Channel",
+            start_time_ms=0,
+            end_time_ms=60000,
+            summary="テスト話題",
+            youtube_url="https://youtube.com/watch?v=abc123&t=0",
+            match_type=MatchType.KEYWORD,
+            snippet="マッチした字幕テキスト",
+        )
+        assert r.match_type == MatchType.KEYWORD
+        assert r.snippet == "マッチした字幕テキスト"
+        assert r.similarity is None
+
+    def test_search_result_match_type_semantic(self) -> None:
+        r = SearchResult(
+            video_title="Test Video",
+            channel_name="Test Channel",
+            start_time_ms=0,
+            end_time_ms=60000,
+            summary="テスト話題",
+            youtube_url="https://youtube.com/watch?v=abc123&t=0",
+            match_type=MatchType.SEMANTIC,
+            similarity=0.85,
+        )
+        assert r.match_type == MatchType.SEMANTIC
+        assert r.snippet is None
+        assert r.similarity == 0.85
+
+    def test_search_result_match_type_hybrid(self) -> None:
+        r = SearchResult(
+            video_title="Test Video",
+            channel_name="Test Channel",
+            start_time_ms=0,
+            end_time_ms=60000,
+            summary="テスト話題",
+            youtube_url="https://youtube.com/watch?v=abc123&t=0",
+            match_type=MatchType.HYBRID,
+            snippet="マッチした字幕",
+            similarity=0.9,
+        )
+        assert r.match_type == MatchType.HYBRID
+        assert r.snippet == "マッチした字幕"
+        assert r.similarity == 0.9
+
+    def test_search_result_defaults_backward_compatible(self) -> None:
+        r = SearchResult(
+            video_title="Test Video",
+            channel_name="Test Channel",
+            start_time_ms=0,
+            end_time_ms=60000,
+            summary="テスト話題",
+            youtube_url="https://youtube.com/watch?v=abc123&t=0",
+        )
+        assert r.match_type is None
+        assert r.snippet is None
+        assert r.similarity is None
+
     def test_sync_result_new_fields(self) -> None:
         r = SyncResult(auth_errors=3, unavailable_skipped=5)
         assert r.auth_errors == 3
@@ -86,6 +147,52 @@ class TestDomainModels:
         r = SyncResult()
         assert r.auth_errors == 0
         assert r.unavailable_skipped == 0
+        assert r.not_live_skipped == 0
+
+    def test_sync_result_not_live_skipped(self) -> None:
+        r = SyncResult(not_live_skipped=7)
+        assert r.not_live_skipped == 7
+
+    def test_sync_result_skip_reasons(self) -> None:
+        r = SyncResult(skip_reasons={SkipReason.NO_SUBTITLE_AVAILABLE: 3, SkipReason.PARSE_FAILED: 1})
+        assert r.skip_reasons[SkipReason.NO_SUBTITLE_AVAILABLE] == 3
+        assert r.skip_reasons[SkipReason.PARSE_FAILED] == 1
+
+    def test_sync_result_skip_reasons_default_empty(self) -> None:
+        r = SyncResult()
+        assert r.skip_reasons == {}
+
+    def test_sync_result_segmentation_retry_defaults(self) -> None:
+        r = SyncResult()
+        assert r.segmentation_retried == 0
+        assert r.segmentation_retry_failed == 0
+
+    def test_sync_result_segmentation_retry_values(self) -> None:
+        r = SyncResult(segmentation_retried=3, segmentation_retry_failed=1)
+        assert r.segmentation_retried == 3
+        assert r.segmentation_retry_failed == 1
+
+
+class TestMatchType:
+    def test_values(self) -> None:
+        assert MatchType.KEYWORD == "keyword"
+        assert MatchType.SEMANTIC == "semantic"
+        assert MatchType.HYBRID == "hybrid"
+
+    def test_is_str(self) -> None:
+        assert isinstance(MatchType.KEYWORD, str)
+
+
+class TestSkipReason:
+    def test_values(self) -> None:
+        assert SkipReason.NO_SUBTITLE_AVAILABLE == "no_subtitle_available"
+        assert SkipReason.NO_TARGET_LANGUAGE == "no_target_language"
+        assert SkipReason.PARSE_FAILED == "parse_failed"
+        assert SkipReason.FETCH_FAILED == "fetch_failed"
+        assert SkipReason.NOT_LIVE_ARCHIVE == "not_live_archive"
+
+    def test_is_str(self) -> None:
+        assert isinstance(SkipReason.NO_SUBTITLE_AVAILABLE, str)
 
 
 class TestVideoUnavailableError:

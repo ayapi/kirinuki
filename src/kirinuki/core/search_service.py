@@ -5,7 +5,7 @@ import logging
 from kirinuki.core.clip_utils import build_youtube_url
 from kirinuki.infra.database import Database
 from kirinuki.infra.embedding_provider import OpenAIEmbeddingProvider
-from kirinuki.models.domain import SearchResult
+from kirinuki.models.domain import MatchType, SearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ class SearchService:
     ) -> list[SearchResult]:
         seen_segment_ids: set[int] = set()
         scored: list[tuple[float, dict]] = []
+        match_info: dict[int, dict] = {}  # segment_id -> {match_type, snippet, similarity}
 
         # FTS結果にスコア付与
         for i, r in enumerate(fts_results):
@@ -45,21 +46,36 @@ class SearchService:
                 seen_segment_ids.add(seg_id)
                 fts_score = 1.0 - (i / max(len(fts_results), 1))
                 scored.append((fts_score, r))
+                match_info[seg_id] = {
+                    "match_type": MatchType.KEYWORD,
+                    "snippet": r.get("snippet"),
+                    "similarity": None,
+                }
 
         # ベクトル検索結果にスコア付与
         for i, r in enumerate(vec_results):
             seg_id = r["segment_id"]
             distance = r.get("distance", 1.0)
             vec_score = max(0.0, 1.0 - distance)
+            similarity = round(vec_score, 4)
+            is_meaningful_vec_match = similarity > 0.0
             if seg_id in seen_segment_ids:
                 # 既にFTSで見つかっている場合はスコアをブースト
                 for j, (s, existing) in enumerate(scored):
                     if existing["segment_id"] == seg_id:
                         scored[j] = (s + vec_score * 0.5, existing)
                         break
+                if is_meaningful_vec_match:
+                    match_info[seg_id]["match_type"] = MatchType.HYBRID
+                    match_info[seg_id]["similarity"] = similarity
             else:
                 seen_segment_ids.add(seg_id)
                 scored.append((vec_score, r))
+                match_info[seg_id] = {
+                    "match_type": MatchType.SEMANTIC,
+                    "snippet": None,
+                    "similarity": similarity,
+                }
 
         # スコア順にソート
         scored.sort(key=lambda x: x[0], reverse=True)
@@ -68,6 +84,8 @@ class SearchService:
         for score, r in scored[:limit]:
             video_id = r["video_id"]
             start_ms = r["start_ms"]
+            seg_id = r["segment_id"]
+            info = match_info[seg_id]
             results.append(
                 SearchResult(
                     video_title=r.get("video_title", ""),
@@ -77,6 +95,9 @@ class SearchService:
                     summary=r["summary"],
                     youtube_url=build_youtube_url(video_id, start_ms),
                     score=round(score, 4),
+                    match_type=info["match_type"],
+                    snippet=info["snippet"],
+                    similarity=info["similarity"],
                 )
             )
         return results

@@ -193,6 +193,180 @@ class TestUnavailableVideosCRUD:
         assert "unavailable_videos" in table_names
 
 
+class TestDeleteSegments:
+    def test_deletes_segments_and_vectors(self, db: Database) -> None:
+        """セグメントとベクトルを両方削除する"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
+        segments_data = [
+            {"start_ms": 0, "end_ms": 60000, "summary": "自己紹介"},
+            {"start_ms": 60000, "end_ms": 120000, "summary": "ゲーム開始"},
+        ]
+        vectors = [[0.1] * 1536, [0.2] * 1536]
+        db.save_segments_with_vectors("vid1", segments_data, vectors)
+
+        deleted = db.delete_segments("vid1")
+        assert deleted == 2
+        assert db.list_segments("vid1") == []
+
+    def test_returns_zero_for_no_segments(self, db: Database) -> None:
+        """セグメントがない動画では0を返す"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
+        deleted = db.delete_segments("vid1")
+        assert deleted == 0
+
+    def test_does_not_affect_other_videos(self, db: Database) -> None:
+        """他の動画のセグメントには影響しない"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
+        db.save_video("vid2", "UC1", "Video 2", None, 7200, "ja", False)
+        db.save_segments_with_vectors(
+            "vid1",
+            [{"start_ms": 0, "end_ms": 60000, "summary": "topic1"}],
+            [[0.1] * 1536],
+        )
+        db.save_segments_with_vectors(
+            "vid2",
+            [{"start_ms": 0, "end_ms": 60000, "summary": "topic2"}],
+            [[0.2] * 1536],
+        )
+
+        db.delete_segments("vid1")
+        assert db.list_segments("vid1") == []
+        assert len(db.list_segments("vid2")) == 1
+
+
+class TestGetSegmentedVideoIds:
+    def test_returns_segmented_video_ids(self, db: Database) -> None:
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
+        db.save_video("vid2", "UC1", "Video 2", None, 7200, "ja", False)
+        db.save_video("vid3", "UC1", "Video 3", None, 5400, "ja", False)
+        db.save_segments("vid1", [{"start_ms": 0, "end_ms": 60000, "summary": "t1"}])
+        db.save_segments("vid3", [{"start_ms": 0, "end_ms": 60000, "summary": "t3"}])
+
+        result = db.get_segmented_video_ids()
+        assert set(result) == {"vid1", "vid3"}
+
+    def test_returns_empty_when_no_segments(self, db: Database) -> None:
+        result = db.get_segmented_video_ids()
+        assert result == []
+
+
+class TestGetUnsegmentedVideoIds:
+    def test_returns_unsegmented_videos_only(self, db: Database) -> None:
+        """セグメント済みと未済が混在する場合、未済のみ返す"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
+        db.save_video("vid2", "UC1", "Video 2", None, 7200, "ja", False)
+        db.save_video("vid3", "UC1", "Video 3", None, 5400, "ja", False)
+        # vid1のみセグメント済み
+        db.save_segments("vid1", [{"start_ms": 0, "end_ms": 60000, "summary": "topic"}])
+        result = db.get_unsegmented_video_ids("UC1")
+        assert set(result) == {"vid2", "vid3"}
+
+    def test_returns_empty_when_all_segmented(self, db: Database) -> None:
+        """全動画がセグメント済みなら空リスト"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
+        db.save_segments("vid1", [{"start_ms": 0, "end_ms": 60000, "summary": "topic"}])
+        result = db.get_unsegmented_video_ids("UC1")
+        assert result == []
+
+    def test_returns_empty_for_channel_with_no_videos(self, db: Database) -> None:
+        """動画がないチャンネルでは空リスト"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        result = db.get_unsegmented_video_ids("UC1")
+        assert result == []
+
+    def test_filters_by_channel_id(self, db: Database) -> None:
+        """他チャンネルの動画は含まない"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_channel("UC2", "Ch2", "https://youtube.com/c/ch2")
+        db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
+        db.save_video("vid2", "UC2", "Video 2", None, 7200, "ja", False)
+        result = db.get_unsegmented_video_ids("UC1")
+        assert result == ["vid1"]
+
+
+class TestGetSubtitleEntries:
+    def test_returns_entries_ordered_by_start_ms(self, db: Database) -> None:
+        """字幕エントリーを開始時刻順で返す"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
+        entries = [
+            SubtitleEntry(start_ms=5000, duration_ms=3000, text="2番目"),
+            SubtitleEntry(start_ms=0, duration_ms=5000, text="1番目"),
+            SubtitleEntry(start_ms=10000, duration_ms=4000, text="3番目"),
+        ]
+        db.save_subtitle_lines("vid1", entries)
+        result = db.get_subtitle_entries("vid1")
+        assert len(result) == 3
+        assert result[0].text == "1番目"
+        assert result[1].text == "2番目"
+        assert result[2].text == "3番目"
+        assert result[0].start_ms == 0
+        assert result[0].duration_ms == 5000
+
+    def test_returns_empty_for_no_subtitles(self, db: Database) -> None:
+        """字幕がない動画では空リスト"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
+        result = db.get_subtitle_entries("vid1")
+        assert result == []
+
+    def test_returns_empty_for_nonexistent_video(self, db: Database) -> None:
+        """存在しない動画IDでは空リスト"""
+        result = db.get_subtitle_entries("nonexistent")
+        assert result == []
+
+
+class TestFtsSearchSegmentsSnippet:
+    def test_fts_search_segments_returns_snippet(self, db: Database) -> None:
+        """FTS検索結果にスニペット（マッチした字幕テキスト）が含まれる"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
+        entries = [
+            SubtitleEntry(start_ms=0, duration_ms=5000, text="こんにちは皆さん今日もよろしく"),
+            SubtitleEntry(start_ms=30000, duration_ms=5000, text="今日はマインクラフトを遊びます"),
+            SubtitleEntry(start_ms=60000, duration_ms=5000, text="ダイヤモンドを見つけました"),
+        ]
+        db.save_subtitle_lines("vid1", entries)
+        segments_data = [
+            {"start_ms": 0, "end_ms": 60000, "summary": "挨拶とゲーム紹介"},
+            {"start_ms": 60000, "end_ms": 120000, "summary": "マインクラフト実況"},
+        ]
+        vectors = [[0.1] * 1536, [0.9] * 1536]
+        db.save_segments_with_vectors("vid1", segments_data, vectors)
+
+        results = db.fts_search_segments("マインクラフト")
+        assert len(results) > 0
+        assert "snippet" in results[0]
+        assert "マインクラフト" in results[0]["snippet"]
+
+    def test_fts_search_segments_multiple_matches_concatenated(self, db: Database) -> None:
+        """同一セグメント内の複数マッチ行が連結される"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
+        entries = [
+            SubtitleEntry(start_ms=0, duration_ms=5000, text="今日はマインクラフトを遊びます"),
+            SubtitleEntry(start_ms=10000, duration_ms=5000, text="マインクラフトの世界へようこそ"),
+        ]
+        db.save_subtitle_lines("vid1", entries)
+        segments_data = [
+            {"start_ms": 0, "end_ms": 60000, "summary": "ゲーム紹介"},
+        ]
+        vectors = [[0.1] * 1536]
+        db.save_segments_with_vectors("vid1", segments_data, vectors)
+
+        results = db.fts_search_segments("マインクラフト")
+        assert len(results) == 1
+        snippet = results[0]["snippet"]
+        assert "…" in snippet  # 区切り文字で連結されている
+
+
+class TestVectorSearch:
     def test_vector_search(self, db: Database) -> None:
         db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
         db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)

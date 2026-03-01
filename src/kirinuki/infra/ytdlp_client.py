@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,11 +16,14 @@ from kirinuki.core.errors import (
     VideoUnavailableError,
 )
 from kirinuki.models.config import AppConfig
-from kirinuki.models.domain import SubtitleEntry
+from kirinuki.models.domain import SkipReason, SubtitleEntry
 
 logger = logging.getLogger(__name__)
 
 _YOUTUBE_VIDEO_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{11}$")
+_CHANNEL_TAB_RE = re.compile(
+    r"/(videos|streams|shorts|featured|community|channels|about|podcasts|releases|playlists)$"
+)
 
 
 @dataclass
@@ -28,6 +32,7 @@ class VideoMeta:
     title: str
     published_at: datetime | None
     duration_seconds: int
+    live_status: str | None = None
 
 
 @dataclass
@@ -43,10 +48,12 @@ class YtdlpClient:
         self._config = config
 
     def _base_opts(self) -> dict:
+        """情報抽出用ベースオプション。download_video()はこのメソッドを使用しない。"""
         opts: dict = {
             "quiet": True,
             "no_warnings": True,
             "skip_download": True,
+            "ignore_no_formats_error": True,
         }
         if self._config.cookie_file_path.exists():
             opts["cookiefile"] = str(self._config.cookie_file_path)
@@ -63,17 +70,22 @@ class YtdlpClient:
         )
 
     def list_channel_video_ids(self, channel_url: str) -> list[str]:
+        """チャンネルの /streams タブからライブ配信アーカイブの動画IDを取得する。"""
+        base_url = _CHANNEL_TAB_RE.sub("", channel_url.rstrip("/"))
+        return self._fetch_tab_video_ids(f"{base_url}/streams")
+
+    def _fetch_tab_video_ids(self, tab_url: str) -> list[str]:
+        """単一タブURLから動画IDを取得する。失敗時は空リストを返す。"""
         opts = self._base_opts()
         opts["extract_flat"] = True
 
-        # チャンネルのメインURLだとタブ(Videos/Shorts/Live)のエントリが返る。
-        # /videos を付加して動画タブから直接動画IDを取得する。
-        normalized = channel_url.rstrip("/")
-        if not normalized.endswith("/videos"):
-            normalized += "/videos"
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(tab_url, download=False)
+        except Exception as e:
+            logger.warning("Failed to fetch tab %s: %s", tab_url, e)
+            return []
 
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(normalized, download=False)
         if not info or "entries" not in info:
             return []
 
@@ -83,10 +95,7 @@ class YtdlpClient:
             if not entry or "id" not in entry:
                 continue
             vid = entry["id"]
-            # YouTube動画IDは11文字。チャンネルID等を除外する。
-            if not _YOUTUBE_VIDEO_ID_RE.match(vid):
-                continue
-            if vid not in seen:
+            if _YOUTUBE_VIDEO_ID_RE.match(vid) and vid not in seen:
                 seen.add(vid)
                 video_ids.append(vid)
         return video_ids
@@ -120,57 +129,188 @@ class YtdlpClient:
             title=info.get("title", ""),
             published_at=published_at,
             duration_seconds=int(info.get("duration", 0)),
+            live_status=info.get("live_status"),
         )
 
-    def fetch_subtitle(self, video_id: str) -> SubtitleData | None:
-        opts = self._base_opts()
-        opts["writesubtitles"] = True
-        opts["writeautomaticsub"] = True
-        opts["subtitleslangs"] = ["ja"]
-        opts["subtitlesformat"] = "json3"
+    def fetch_subtitle(
+        self, video_id: str
+    ) -> tuple[SubtitleData | None, SkipReason | None]:
+        """字幕データを取得する。
+
+        yt-dlpのファイル書出し機能を使い、一時ディレクトリに字幕を書き出してから読み込む。
+
+        Returns:
+            tuple[SubtitleData | None, SkipReason | None]:
+                - 字幕が取得できた場合: (SubtitleData, None)
+                - 字幕が取得できなかった場合: (None, SkipReason)
+        """
         url = f"https://www.youtube.com/watch?v={video_id}"
 
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-        except yt_dlp.DownloadError as e:
-            msg = str(e)
-            if self._is_auth_error(msg):
-                raise AuthenticationRequiredError(
-                    f"認証が必要です ({video_id}): {msg}"
-                ) from e
-            raise VideoUnavailableError(video_id, msg) from e
+        with tempfile.TemporaryDirectory() as tmpdir:
+            opts = self._base_opts()
+            opts["writesubtitles"] = True
+            opts["writeautomaticsub"] = True
+            opts["subtitleslangs"] = ["ja"]
+            opts["outtmpl"] = str(Path(tmpdir) / f"{video_id}.%(ext)s")
 
-        if not info:
-            return None
+            logger.debug("fetch_subtitle opts: %s", opts)
 
-        requested = info.get("requested_subtitles")
-        if not requested:
-            return None
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+            except yt_dlp.DownloadError as e:
+                msg = str(e)
+                if self._is_auth_error(msg):
+                    raise AuthenticationRequiredError(
+                        f"認証が必要です ({video_id}): {msg}"
+                    ) from e
+                raise VideoUnavailableError(video_id, msg) from e
 
-        # 手動字幕優先判定
-        subtitles = info.get("subtitles", {})
-        auto_captions = info.get("automatic_captions", {})
-        is_auto = "ja" not in subtitles and "ja" in auto_captions
+            if not info:
+                return None, SkipReason.FETCH_FAILED
 
-        sub_info = requested.get("ja")
-        if not sub_info:
-            return None
+            requested = info.get("requested_subtitles")
 
-        raw_data = sub_info.get("data")
-        if not raw_data:
-            return None
+            if not requested or "ja" not in requested:
+                subtitles = info.get("subtitles", {})
+                auto_captions = info.get("automatic_captions", {})
+                logger.debug(
+                    "No requested_subtitles for %s. subtitles keys: %s, automatic_captions keys: %s",
+                    video_id,
+                    list(subtitles.keys()),
+                    list(auto_captions.keys()),
+                )
+                return None, SkipReason.NO_SUBTITLE_AVAILABLE
 
-        entries = self._parse_json3(raw_data)
-        if not entries:
-            return None
+            sub_info = requested["ja"]
 
-        return SubtitleData(
-            video_id=video_id,
-            language="ja",
-            is_auto_generated=is_auto,
-            entries=entries,
+            # 手動字幕優先判定
+            subtitles = info.get("subtitles", {})
+            auto_captions = info.get("automatic_captions", {})
+            is_auto = "ja" not in subtitles and "ja" in auto_captions
+
+            # ファイルから字幕データを読み込む
+            filepath = sub_info.get("filepath")
+            ext = sub_info.get("ext", "")
+
+            if filepath and Path(filepath).exists():
+                raw_data = Path(filepath).read_text(encoding="utf-8")
+            else:
+                # filepathがない場合、一時ディレクトリ内の字幕ファイルを探す
+                sub_files = list(Path(tmpdir).glob(f"{video_id}.ja.*"))
+                if not sub_files:
+                    logger.debug(
+                        "Subtitle file not found in tmpdir for %s (ext=%s)",
+                        video_id,
+                        ext,
+                    )
+                    return None, SkipReason.NO_SUBTITLE_AVAILABLE
+                filepath = str(sub_files[0])
+                ext = sub_files[0].suffix.lstrip(".")
+                raw_data = sub_files[0].read_text(encoding="utf-8")
+
+            if not raw_data.strip():
+                return None, SkipReason.NO_SUBTITLE_AVAILABLE
+
+            # 拡張子に応じてパーサーを呼び分ける
+            if ext == "json3":
+                entries = self._parse_json3(raw_data)
+            elif ext in ("vtt", "srv3"):
+                entries = self._parse_vtt(raw_data)
+            else:
+                # 未知のフォーマットはまずjson3、次にvttとして試す
+                entries = self._parse_json3(raw_data)
+                if not entries:
+                    entries = self._parse_vtt(raw_data)
+
+            if not entries:
+                logger.warning(
+                    "Failed to parse subtitle for %s (ext=%s)", video_id, ext
+                )
+                return None, SkipReason.PARSE_FAILED
+
+            return (
+                SubtitleData(
+                    video_id=video_id,
+                    language="ja",
+                    is_auto_generated=is_auto,
+                    entries=entries,
+                ),
+                None,
+            )
+
+    @staticmethod
+    def _parse_vtt(raw_data: str) -> list[SubtitleEntry]:
+        """VTT（WebVTT）フォーマットの字幕をパースする。"""
+        timestamp_re = re.compile(
+            r"(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s+-->\s+(\d{2}):(\d{2}):(\d{2})\.(\d{3})"
         )
+        tag_re = re.compile(r"<[^>]+>")
+        entries: list[SubtitleEntry] = []
+        lines = raw_data.splitlines()
+        i = 0
+        in_note = False
+        while i < len(lines):
+            line = lines[i].strip()
+
+            # NOTEブロックをスキップ
+            if line.startswith("NOTE"):
+                in_note = True
+                i += 1
+                continue
+            if in_note:
+                if line == "":
+                    in_note = False
+                i += 1
+                continue
+
+            # ヘッダー・空行をスキップ
+            if not line or line.startswith("WEBVTT") or line.startswith("Kind:") or line.startswith("Language:"):
+                i += 1
+                continue
+
+            m = timestamp_re.match(line)
+            if m:
+                start_ms = (
+                    int(m.group(1)) * 3600000
+                    + int(m.group(2)) * 60000
+                    + int(m.group(3)) * 1000
+                    + int(m.group(4))
+                )
+                end_ms = (
+                    int(m.group(5)) * 3600000
+                    + int(m.group(6)) * 60000
+                    + int(m.group(7)) * 1000
+                    + int(m.group(8))
+                )
+                duration_ms = end_ms - start_ms
+
+                # テキスト行を収集
+                text_lines: list[str] = []
+                i += 1
+                while i < len(lines) and lines[i].strip():
+                    # 数値のみの行（キュー番号）はスキップ
+                    stripped = lines[i].strip()
+                    if not stripped.isdigit():
+                        # HTMLタグを除去
+                        clean = tag_re.sub("", stripped)
+                        if clean.strip():
+                            text_lines.append(clean.strip())
+                    i += 1
+
+                text = " ".join(text_lines).strip()
+                if text:
+                    entries.append(
+                        SubtitleEntry(
+                            start_ms=start_ms,
+                            duration_ms=duration_ms,
+                            text=text,
+                        )
+                    )
+            else:
+                i += 1
+
+        return entries
 
     def _parse_json3(self, raw_data: str) -> list[SubtitleEntry]:
         try:

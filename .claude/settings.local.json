@@ -11,7 +11,10 @@
       "WebFetch(domain:github.com)",
       "Bash(python:*)",
       "Bash(pip show:*)",
-      "Bash(uv run:*)"
+      "Bash(uv run:*)",
+      "Bash(xargs grep:*)",
+      "Bash(python3:*)",
+      "Bash(sqlite3:*)"
     ]
   }
 }

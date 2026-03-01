@@ -240,6 +240,16 @@ class Database:
         ).fetchall()
         return {row[0] for row in rows}
 
+    def get_unsegmented_video_ids(self, channel_id: str) -> list[str]:
+        """セグメンテーション未完了の動画IDを返す。"""
+        rows = self._execute(
+            """SELECT v.video_id FROM videos v
+               LEFT JOIN segments s ON v.video_id = s.video_id
+               WHERE v.channel_id = ? AND s.id IS NULL""",
+            (channel_id,),
+        ).fetchall()
+        return [row[0] for row in rows]
+
     def list_videos(self, channel_id: str) -> list[VideoSummary]:
         rows = self._execute(
             """SELECT video_id, title, published_at, duration_seconds
@@ -271,6 +281,17 @@ class Database:
             )
         self._conn.commit()
 
+    def get_subtitle_entries(self, video_id: str) -> list[SubtitleEntry]:
+        """DB保存済みの字幕行をSubtitleEntryリストとして返す。"""
+        rows = self._execute(
+            "SELECT start_ms, duration_ms, text FROM subtitle_lines WHERE video_id = ? ORDER BY start_ms",
+            (video_id,),
+        ).fetchall()
+        return [
+            SubtitleEntry(start_ms=row[0], duration_ms=row[1], text=row[2])
+            for row in rows
+        ]
+
     def fts_search(self, query: str, limit: int = 50) -> list[dict]:
         rows = self._execute(
             """SELECT video_id, start_ms, duration_ms, text
@@ -284,6 +305,29 @@ class Database:
         ]
 
     # --- Segment CRUD ---
+
+    def delete_segments(self, video_id: str) -> int:
+        """指定動画のセグメントとベクトルを削除する。削除したセグメント数を返す。"""
+        assert self._conn is not None
+        # segment_vectorsを先に削除（FK参照のため）
+        self._conn.execute(
+            "DELETE FROM segment_vectors WHERE segment_id IN "
+            "(SELECT id FROM segments WHERE video_id = ?)",
+            (video_id,),
+        )
+        cursor = self._conn.execute(
+            "DELETE FROM segments WHERE video_id = ?",
+            (video_id,),
+        )
+        self._conn.commit()
+        return cursor.rowcount
+
+    def get_segmented_video_ids(self) -> list[str]:
+        """セグメントが存在する動画IDの一覧を返す。"""
+        rows = self._execute(
+            "SELECT DISTINCT video_id FROM segments"
+        ).fetchall()
+        return [row[0] for row in rows]
 
     def save_segments(self, video_id: str, segments_data: list[dict]) -> list[int]:
         assert self._conn is not None
@@ -408,8 +452,9 @@ class Database:
     def fts_search_segments(self, query: str, limit: int = 50) -> list[dict]:
         """FTS検索結果から関連するセグメントを特定して返す"""
         rows = self._execute(
-            """SELECT DISTINCT s.id, s.video_id, s.start_ms, s.end_ms, s.summary,
-                      v.title, c.name as channel_name
+            """SELECT s.id, s.video_id, s.start_ms, s.end_ms, s.summary,
+                      v.title, c.name as channel_name,
+                      GROUP_CONCAT(f.text, '…') as snippet
                FROM subtitle_fts f
                JOIN segments s ON f.video_id = s.video_id
                    AND CAST(f.start_ms AS INTEGER) >= s.start_ms
@@ -417,6 +462,8 @@ class Database:
                JOIN videos v ON s.video_id = v.video_id
                JOIN channels c ON v.channel_id = c.channel_id
                WHERE subtitle_fts MATCH ?
+               GROUP BY s.id, s.video_id, s.start_ms, s.end_ms, s.summary,
+                        v.title, c.name
                LIMIT ?""",
             (query, limit),
         ).fetchall()
@@ -429,6 +476,7 @@ class Database:
                 "summary": row[4],
                 "video_title": row[5],
                 "channel_name": row[6],
+                "snippet": row[7] or "",
             }
             for row in rows
         ]

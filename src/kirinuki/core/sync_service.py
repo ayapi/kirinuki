@@ -8,7 +8,7 @@ from kirinuki.core.errors import AuthenticationRequiredError, VideoUnavailableEr
 from kirinuki.core.segmentation_service import SegmentationService
 from kirinuki.infra.database import Database
 from kirinuki.infra.ytdlp_client import YtdlpClient
-from kirinuki.models.domain import SyncError, SyncResult
+from kirinuki.models.domain import SkipReason, SyncError, SyncResult
 
 logger = logging.getLogger(__name__)
 
@@ -26,20 +26,25 @@ class SyncService:
         self._segmentation = segmentation_service
         self._cookie_file_path = cookie_file_path
 
-    def sync_all(self) -> SyncResult:
+    def sync_all(self, max_segment_ms: int = 300_000) -> SyncResult:
         channels = self._db.list_channels()
         total = SyncResult()
         for ch in channels:
-            result = self.sync_channel(ch.channel_id)
+            result = self.sync_channel(ch.channel_id, max_segment_ms=max_segment_ms)
             total.already_synced += result.already_synced
             total.newly_synced += result.newly_synced
             total.skipped += result.skipped
             total.auth_errors += result.auth_errors
             total.unavailable_skipped += result.unavailable_skipped
+            total.not_live_skipped += result.not_live_skipped
+            total.segmentation_retried += result.segmentation_retried
+            total.segmentation_retry_failed += result.segmentation_retry_failed
             total.errors.extend(result.errors)
+            for reason, count in result.skip_reasons.items():
+                total.skip_reasons[reason] = total.skip_reasons.get(reason, 0) + count
         return total
 
-    def sync_channel(self, channel_id: str) -> SyncResult:
+    def sync_channel(self, channel_id: str, max_segment_ms: int = 300_000) -> SyncResult:
         channel = self._db.get_channel(channel_id)
         if not channel:
             return SyncResult(errors=[SyncError(video_id="", reason=f"Channel {channel_id} not found")])
@@ -64,7 +69,7 @@ class SyncService:
 
         for video_id in new_ids:
             try:
-                self._sync_single_video(video_id, channel_id, result)
+                self._sync_single_video(video_id, channel_id, result, max_segment_ms=max_segment_ms)
             except AuthenticationRequiredError as e:
                 logger.warning("Auth required for video %s: %s", video_id, e)
                 self._db.save_unavailable_video(video_id, channel_id, "auth_required", str(e))
@@ -76,6 +81,9 @@ class SyncService:
             except Exception as e:
                 logger.error("Failed to sync video %s: %s", video_id, e)
                 result.errors.append(SyncError(video_id=video_id, reason=str(e)))
+
+        # セグメンテーション再試行
+        self._retry_segmentation(channel_id, result, max_segment_ms=max_segment_ms)
 
         # 最終同期日時を更新
         self._db.update_channel_last_synced(channel_id, datetime.now(tz=timezone.utc))
@@ -96,15 +104,54 @@ class SyncService:
             if cleared > 0:
                 logger.info("Cleared %d auth-required records for %s (cookie updated)", cleared, channel_id)
 
-    def _sync_single_video(self, video_id: str, channel_id: str, result: SyncResult) -> None:
+    def _retry_segmentation(
+        self, channel_id: str, result: SyncResult, max_segment_ms: int = 300_000
+    ) -> None:
+        """セグメンテーション未完了動画の再試行を実行する。"""
+        unsegmented_ids = self._db.get_unsegmented_video_ids(channel_id)
+        for video_id in unsegmented_ids:
+            entries = self._db.get_subtitle_entries(video_id)
+            if not entries:
+                continue
+            video = self._db.get_video(video_id)
+            if video is None:
+                continue
+            try:
+                self._segmentation.segment_video_from_entries(
+                    video_id, entries, video.duration_seconds,
+                    max_segment_ms=max_segment_ms,
+                )
+                result.segmentation_retried += 1
+            except Exception as e:
+                logger.warning("Segmentation retry failed for video %s: %s", video_id, e)
+                result.segmentation_retry_failed += 1
+
+    def _sync_single_video(
+        self, video_id: str, channel_id: str, result: SyncResult, max_segment_ms: int = 300_000
+    ) -> None:
         # メタデータ取得
         meta = self._ytdlp.fetch_video_metadata(video_id)
 
+        # ライブ配信アーカイブ判定（live_status=Noneは安全側に倒してsync対象）
+        if meta.live_status is not None and meta.live_status != "was_live":
+            logger.info(
+                "Skipping non-live video %s: %s (live_status=%s)",
+                video_id, meta.title, meta.live_status,
+            )
+            result.not_live_skipped += 1
+            result.skip_reasons[SkipReason.NOT_LIVE_ARCHIVE] = (
+                result.skip_reasons.get(SkipReason.NOT_LIVE_ARCHIVE, 0) + 1
+            )
+            return
+
         # 字幕取得
-        subtitle_data = self._ytdlp.fetch_subtitle(video_id)
+        subtitle_data, skip_reason = self._ytdlp.fetch_subtitle(video_id)
         if subtitle_data is None:
-            logger.info("No subtitle for video %s, skipping", video_id)
+            reason_str = skip_reason.value if skip_reason else "unknown"
+            logger.info("No subtitle for video %s: %s", video_id, reason_str)
             result.skipped += 1
+            if skip_reason:
+                result.skip_reasons[skip_reason] = result.skip_reasons.get(skip_reason, 0) + 1
             return
 
         # 動画をDBに保存
@@ -124,7 +171,8 @@ class SyncService:
         # セグメンテーション
         try:
             self._segmentation.segment_video_from_entries(
-                video_id, subtitle_data.entries, meta.duration_seconds
+                video_id, subtitle_data.entries, meta.duration_seconds,
+                max_segment_ms=max_segment_ms,
             )
         except Exception as e:
             logger.warning("Segmentation failed for video %s: %s", video_id, e)

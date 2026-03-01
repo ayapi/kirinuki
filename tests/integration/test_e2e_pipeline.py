@@ -10,7 +10,7 @@ from kirinuki.core.segmentation_service import SegmentationService
 from kirinuki.core.sync_service import SyncService
 from kirinuki.infra.database import Database
 from kirinuki.infra.ytdlp_client import SubtitleData, VideoMeta
-from kirinuki.models.domain import SubtitleEntry, TopicSegment
+from kirinuki.models.domain import SkipReason, SubtitleEntry, TopicSegment
 
 
 @pytest.fixture
@@ -69,7 +69,7 @@ class TestFullWorkflow:
             VideoMeta(video_id="vid2", title="配信#2 雑談", published_at=None, duration_seconds=3600),
         ]
         mock_ytdlp.fetch_subtitle.side_effect = [
-            SubtitleData(
+            (SubtitleData(
                 video_id="vid1",
                 language="ja",
                 is_auto_generated=False,
@@ -78,8 +78,8 @@ class TestFullWorkflow:
                     SubtitleEntry(start_ms=60000, duration_ms=5000, text="ダイヤモンドを見つけました"),
                     SubtitleEntry(start_ms=120000, duration_ms=5000, text="エンダードラゴンに挑戦"),
                 ],
-            ),
-            SubtitleData(
+            ), None),
+            (SubtitleData(
                 video_id="vid2",
                 language="ja",
                 is_auto_generated=True,
@@ -87,7 +87,7 @@ class TestFullWorkflow:
                     SubtitleEntry(start_ms=0, duration_ms=5000, text="今日は雑談配信です"),
                     SubtitleEntry(start_ms=60000, duration_ms=5000, text="最近見た映画の話"),
                 ],
-            ),
+            ), None),
         ]
         mock_llm.analyze_topics.side_effect = [
             [
@@ -125,12 +125,12 @@ class TestFullWorkflow:
         mock_ytdlp.fetch_video_metadata.return_value = VideoMeta(
             video_id="vid1", title="Video 1", published_at=None, duration_seconds=3600
         )
-        mock_ytdlp.fetch_subtitle.return_value = SubtitleData(
+        mock_ytdlp.fetch_subtitle.return_value = (SubtitleData(
             video_id="vid1",
             language="ja",
             is_auto_generated=False,
             entries=[SubtitleEntry(start_ms=0, duration_ms=5000, text="テスト字幕")],
-        )
+        ), None)
         mock_llm.analyze_topics.return_value = [
             TopicSegment(start_ms=0, end_ms=60000, summary="テスト"),
         ]
@@ -144,12 +144,12 @@ class TestFullWorkflow:
         mock_ytdlp.fetch_video_metadata.return_value = VideoMeta(
             video_id="vid2", title="Video 2", published_at=None, duration_seconds=7200
         )
-        mock_ytdlp.fetch_subtitle.return_value = SubtitleData(
+        mock_ytdlp.fetch_subtitle.return_value = (SubtitleData(
             video_id="vid2",
             language="ja",
             is_auto_generated=False,
             entries=[SubtitleEntry(start_ms=0, duration_ms=5000, text="2回目テスト")],
-        )
+        ), None)
 
         result2 = services["sync"].sync_all()
         assert result2.already_synced == 1  # vid1 はスキップ
@@ -166,11 +166,44 @@ class TestFullWorkflow:
         mock_ytdlp.fetch_video_metadata.return_value = VideoMeta(
             video_id="vid_nosub", title="No Sub Video", published_at=None, duration_seconds=3600
         )
-        mock_ytdlp.fetch_subtitle.return_value = None
+        mock_ytdlp.fetch_subtitle.return_value = (None, SkipReason.NO_SUBTITLE_AVAILABLE)
 
         result = services["sync"].sync_all()
         assert result.skipped == 1
         assert result.newly_synced == 0
+
+    def test_live_archive_filter_mixed_channel(
+        self, services, mock_ytdlp, mock_llm, mock_embedding, db
+    ) -> None:
+        """ライブ配信アーカイブと通常動画が混在するチャンネルで、アーカイブのみがsyncされること"""
+        mock_ytdlp.resolve_channel_name.return_value = ("UC_TEST", "テストチャンネル")
+        services["channel"].register("https://youtube.com/c/test")
+
+        mock_ytdlp.list_channel_video_ids.return_value = ["vid_live", "vid_regular", "vid_upcoming"]
+        mock_ytdlp.fetch_video_metadata.side_effect = [
+            VideoMeta(video_id="vid_live", title="配信#1 マインクラフト", published_at=None, duration_seconds=7200, live_status="was_live"),
+            VideoMeta(video_id="vid_regular", title="切り抜き動画", published_at=None, duration_seconds=300, live_status="not_live"),
+            VideoMeta(video_id="vid_upcoming", title="次回配信予告", published_at=None, duration_seconds=0, live_status="is_upcoming"),
+        ]
+        mock_ytdlp.fetch_subtitle.return_value = (SubtitleData(
+            video_id="vid_live",
+            language="ja",
+            is_auto_generated=False,
+            entries=[
+                SubtitleEntry(start_ms=0, duration_ms=5000, text="こんにちは今日もマインクラフトやります"),
+            ],
+        ), None)
+        mock_llm.analyze_topics.return_value = [
+            TopicSegment(start_ms=0, end_ms=60000, summary="挨拶とゲーム紹介"),
+        ]
+        mock_embedding.embed.return_value = [[0.5] * 1536]
+
+        result = services["sync"].sync_all()
+        assert result.newly_synced == 1
+        assert result.not_live_skipped == 2
+        assert result.skip_reasons[SkipReason.NOT_LIVE_ARCHIVE] == 2
+        # fetch_subtitle はライブアーカイブの1回だけ呼ばれること
+        assert mock_ytdlp.fetch_subtitle.call_count == 1
 
     def test_search_timestamp_url(
         self, services, mock_ytdlp, mock_llm, mock_embedding, db
@@ -183,12 +216,12 @@ class TestFullWorkflow:
         mock_ytdlp.fetch_video_metadata.return_value = VideoMeta(
             video_id="vid1", title="Video 1", published_at=None, duration_seconds=3600
         )
-        mock_ytdlp.fetch_subtitle.return_value = SubtitleData(
+        mock_ytdlp.fetch_subtitle.return_value = (SubtitleData(
             video_id="vid1",
             language="ja",
             is_auto_generated=False,
             entries=[SubtitleEntry(start_ms=90000, duration_ms=5000, text="テストキーワードです")],
-        )
+        ), None)
         mock_llm.analyze_topics.return_value = [
             TopicSegment(start_ms=60000, end_ms=180000, summary="テストトピック"),
         ]

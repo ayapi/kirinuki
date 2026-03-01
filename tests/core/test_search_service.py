@@ -6,7 +6,7 @@ import pytest
 
 from kirinuki.core.search_service import SearchService
 from kirinuki.infra.database import Database
-from kirinuki.models.domain import SubtitleEntry
+from kirinuki.models.domain import MatchType, SubtitleEntry
 
 
 @pytest.fixture
@@ -71,6 +71,55 @@ class TestSearch:
         mock_embedding.embed.return_value = [[0.5] * 1536]
         results = service.search("マインクラフト", limit=1)
         assert len(results) <= 1
+
+
+class TestMatchTypeTracking:
+    def test_keyword_only_match_type(self, service, mock_embedding):
+        """FTSのみでヒットした場合、match_type=KEYWORDが設定される"""
+        mock_embedding.embed.return_value = [[0.0] * 1536]  # 遠い距離 → ベクトルマッチなし
+        results = service.search("マインクラフト")
+        keyword_results = [r for r in results if r.match_type == MatchType.KEYWORD]
+        assert len(keyword_results) > 0
+        for r in keyword_results:
+            assert r.snippet is not None
+            assert r.similarity is None
+
+    def test_semantic_only_match_type(self, service, mock_embedding):
+        """ベクトルのみでヒットした場合、match_type=SEMANTICが設定される"""
+        mock_embedding.embed.return_value = [[0.85] * 1536]
+        results = service.search("ab")  # 2文字 → FTS不発
+        semantic_results = [r for r in results if r.match_type == MatchType.SEMANTIC]
+        assert len(semantic_results) > 0
+        for r in semantic_results:
+            assert r.similarity is not None
+            assert 0.0 <= r.similarity <= 1.0
+
+    def test_hybrid_match_type(self, service, mock_embedding):
+        """FTSとベクトル両方でヒットした場合、match_type=HYBRIDが設定される"""
+        mock_embedding.embed.return_value = [[0.1] * 1536]  # segment1のベクトルに近い
+        results = service.search("マインクラフト")
+        hybrid_results = [r for r in results if r.match_type == MatchType.HYBRID]
+        # FTSとベクトルが同じセグメントにヒットすればhybrid
+        for r in hybrid_results:
+            assert r.snippet is not None
+            assert r.similarity is not None
+
+    def test_similarity_score_range(self, service, mock_embedding):
+        """similarity は 0.0〜1.0 の範囲である"""
+        mock_embedding.embed.return_value = [[0.5] * 1536]
+        results = service.search("マインクラフト")
+        for r in results:
+            if r.similarity is not None:
+                assert 0.0 <= r.similarity <= 1.0
+
+    def test_snippet_from_fts(self, service, mock_embedding):
+        """FTSマッチ結果にsnippetが設定される"""
+        mock_embedding.embed.return_value = [[0.0] * 1536]
+        results = service.search("マインクラフト")
+        fts_results = [r for r in results if r.match_type in (MatchType.KEYWORD, MatchType.HYBRID)]
+        for r in fts_results:
+            assert r.snippet is not None
+            assert len(r.snippet) > 0
 
 
 class TestUrlGeneration:

@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import json
+import logging
+import re
+
 import anthropic
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from kirinuki.models.recommendation import SegmentRecommendation
 
-PROMPT_VERSION = "v1"
+logger = logging.getLogger(__name__)
+
+PROMPT_VERSION = "v2"
+DEFAULT_MAX_TOKENS = 8192
+BATCH_SIZE = 50
 
 EVALUATION_PROMPT = """\
 あなたは YouTube 配信の切り抜き動画の専門家です。
@@ -31,17 +39,22 @@ EVALUATION_PROMPT = """\
    - 高: 泣ける話、嬉しい報告、努力の成果発表
    - 低: 感情の起伏が少ない
 
+## スコアリング方針
+
+- スコアは4軸の平均ではありません。**いずれか1つの軸で突出していれば、それだけで高スコア（8〜10）にしてください。**
+- 例: 情報価値はゼロでも、とにかく笑える・エンタメとして最高なら 9〜10 をつけてOKです。
+- 逆に、すべての軸で「まあまあ」なセグメントは中程度（5〜6）に留めてください。
+
 ## セグメント一覧
 
 {segments_text}
 
 ## 出力指示
 
-各セグメントについて以下を出力してください:
-- segment_id: セグメントID
-- score: 切り抜き推薦スコア（1〜10の整数。10が最も推薦）
-- summary: 話題の要約（1〜2文で簡潔に）
-- appeal: この部分が切り抜きに向いている理由（1〜2文）
+以下のJSON形式で出力してください。他のテキストは一切含めないでください:
+{{"evaluations": [
+  {{"segment_id": セグメントID, "score": 切り抜き推薦スコア（1〜10の整数。10が最も推薦）, "summary": "話題の要約（1〜2文で簡潔に）", "appeal": "この部分が切り抜きに向いている理由（1〜2文）"}}
+]}}
 """
 
 
@@ -69,22 +82,14 @@ class LLMClient:
         segments: list[dict[str, str | int]],
         prompt_version: str,
     ) -> list[SegmentRecommendation]:
-        """動画1本分のセグメントを一括評価する"""
-        segments_text = "\n".join(
-            f"- ID: {seg['id']}, 区間: {seg['start_ms']/1000:.0f}s〜{seg['end_ms']/1000:.0f}s, "
-            f"内容: {seg['summary']}"
-            for seg in segments
-        )
+        """動画1本分のセグメントをバッチ分割して評価する"""
+        all_evaluations: list[SegmentEvaluation] = []
 
-        prompt = EVALUATION_PROMPT.format(segments_text=segments_text)
-
-        response = self._client.messages.create(
-            model=self._model,
-            max_tokens=4096,
-            temperature=0,
-            messages=[{"role": "user", "content": prompt}],
-            response_model=EvaluationResponse,
-        )
+        for i in range(0, len(segments), BATCH_SIZE):
+            batch = segments[i : i + BATCH_SIZE]
+            batch_result = self._evaluate_batch(batch)
+            if batch_result is not None:
+                all_evaluations.extend(batch_result)
 
         return [
             SegmentRecommendation(
@@ -97,8 +102,54 @@ class LLMClient:
                 appeal=ev.appeal,
                 prompt_version=prompt_version,
             )
-            for ev in response.evaluations
+            for ev in all_evaluations
         ]
+
+    def _evaluate_batch(
+        self,
+        segments: list[dict[str, str | int]],
+    ) -> list[SegmentEvaluation] | None:
+        """1バッチ分のセグメントをLLMで評価する。失敗時はNoneを返す。"""
+        segments_text = "\n".join(
+            f"- ID: {seg['id']}, 区間: {seg['start_ms']/1000:.0f}s〜{seg['end_ms']/1000:.0f}s, "
+            f"内容: {seg['summary']}"
+            for seg in segments
+        )
+
+        prompt = EVALUATION_PROMPT.format(segments_text=segments_text)
+
+        response = self._client.messages.create(
+            model=self._model,
+            max_tokens=DEFAULT_MAX_TOKENS,
+            temperature=0,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        if response.stop_reason == "max_tokens":
+            logger.warning(
+                "LLM evaluation response was truncated (max_tokens). "
+                "Batch size: %d segments",
+                len(segments),
+            )
+            return None
+
+        raw_text = response.content[0].text
+        raw_text = re.sub(r"^```(?:json)?\s*\n?", "", raw_text.strip())
+        raw_text = re.sub(r"\n?```\s*$", "", raw_text)
+
+        try:
+            data = json.loads(raw_text)
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse LLM evaluation response as JSON: %s", raw_text[:200])
+            return None
+
+        try:
+            parsed = EvaluationResponse.model_validate(data)
+        except ValidationError:
+            logger.warning("Failed to validate LLM evaluation response: %s", raw_text[:200])
+            return None
+
+        return parsed.evaluations
 
     @staticmethod
     def _find_segment_time(

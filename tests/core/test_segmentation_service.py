@@ -85,6 +85,116 @@ class TestChunking:
         assert len(chunks) > 1
 
 
+class TestResplitOversized:
+    def test_resplit_oversized_segment(self, service, mock_llm, mock_embedding, db):
+        """max_segment_ms超のセグメントが再分割される"""
+        mock_llm.analyze_topics.return_value = [
+            TopicSegment(start_ms=0, end_ms=600000, summary="長い話題"),  # 10分
+        ]
+        mock_llm.analyze_topics_resplit.return_value = [
+            TopicSegment(start_ms=0, end_ms=300000, summary="【長い話題】前半"),
+            TopicSegment(start_ms=300000, end_ms=600000, summary="【長い話題】後半"),
+        ]
+        mock_embedding.embed.return_value = [[0.1] * 1536, [0.2] * 1536]
+
+        entries = [
+            SubtitleEntry(start_ms=i * 60000, duration_ms=5000, text=f"テスト{i}")
+            for i in range(10)
+        ]
+        segments = service.segment_video_from_entries(
+            "vid1", entries, 600, max_segment_ms=300000
+        )
+        assert len(segments) == 2
+        mock_llm.analyze_topics_resplit.assert_called_once()
+
+    def test_keeps_segment_under_max(self, service, mock_llm, mock_embedding, db):
+        """max_segment_ms以下のセグメントはそのまま保持"""
+        mock_llm.analyze_topics.return_value = [
+            TopicSegment(start_ms=0, end_ms=60000, summary="短い話題"),
+        ]
+        mock_embedding.embed.return_value = [[0.1] * 1536]
+
+        entries = [SubtitleEntry(start_ms=0, duration_ms=5000, text="テスト")]
+        segments = service.segment_video_from_entries(
+            "vid1", entries, 60, max_segment_ms=300000
+        )
+        assert len(segments) == 1
+        mock_llm.analyze_topics_resplit.assert_not_called()
+
+    def test_keeps_original_when_resplit_fails(self, service, mock_llm, mock_embedding, db):
+        """再分割が失敗した場合は元セグメントを保持"""
+        mock_llm.analyze_topics.return_value = [
+            TopicSegment(start_ms=0, end_ms=600000, summary="長い話題"),
+        ]
+        mock_llm.analyze_topics_resplit.side_effect = Exception("API error")
+        mock_embedding.embed.return_value = [[0.1] * 1536]
+
+        entries = [
+            SubtitleEntry(start_ms=i * 60000, duration_ms=5000, text=f"テスト{i}")
+            for i in range(10)
+        ]
+        segments = service.segment_video_from_entries(
+            "vid1", entries, 600, max_segment_ms=300000
+        )
+        assert len(segments) == 1
+        assert segments[0].summary == "長い話題"
+
+    def test_keeps_original_when_resplit_returns_single(self, service, mock_llm, mock_embedding, db):
+        """再分割が1つしか返さない場合は元セグメントを保持"""
+        mock_llm.analyze_topics.return_value = [
+            TopicSegment(start_ms=0, end_ms=600000, summary="長い話題"),
+        ]
+        mock_llm.analyze_topics_resplit.return_value = [
+            TopicSegment(start_ms=0, end_ms=600000, summary="同じ話題"),
+        ]
+        mock_embedding.embed.return_value = [[0.1] * 1536]
+
+        entries = [
+            SubtitleEntry(start_ms=i * 60000, duration_ms=5000, text=f"テスト{i}")
+            for i in range(10)
+        ]
+        segments = service.segment_video_from_entries(
+            "vid1", entries, 600, max_segment_ms=300000
+        )
+        assert len(segments) == 1
+        assert segments[0].summary == "長い話題"
+
+
+class TestResegment:
+    def test_resegment_video(self, service, mock_llm, mock_embedding, db):
+        """既存セグメントを削除して再セグメンテーション"""
+        # 既存セグメント
+        db.save_segments_with_vectors(
+            "vid1",
+            [{"start_ms": 0, "end_ms": 3600000, "summary": "旧セグメント"}],
+            [[0.1] * 1536],
+        )
+        # 字幕データ
+        db.save_subtitle_lines("vid1", [
+            SubtitleEntry(start_ms=0, duration_ms=5000, text="テスト字幕"),
+        ])
+
+        mock_llm.analyze_topics.return_value = [
+            TopicSegment(start_ms=0, end_ms=1800000, summary="新セグメント1"),
+            TopicSegment(start_ms=1800000, end_ms=3600000, summary="新セグメント2"),
+        ]
+        mock_embedding.embed.return_value = [[0.1] * 1536, [0.2] * 1536]
+
+        segments = service.resegment_video("vid1")
+        assert len(segments) == 2
+        assert segments[0].summary == "新セグメント1"
+
+    def test_resegment_no_subtitles(self, service, db):
+        """字幕がない場合は空リスト"""
+        segments = service.resegment_video("vid1")
+        assert segments == []
+
+    def test_resegment_nonexistent_video(self, service, db):
+        """存在しない動画IDでは空リスト"""
+        segments = service.resegment_video("nonexistent")
+        assert segments == []
+
+
 class TestListSegments:
     def test_list(self, service, db, mock_llm, mock_embedding):
         mock_llm.analyze_topics.return_value = [
