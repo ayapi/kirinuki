@@ -15,7 +15,7 @@ from kirinuki.models.recommendation import (
 if TYPE_CHECKING:
     from kirinuki.infra.db import DatabaseClient
 
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v3"
 
 
 class LLMClientProtocol(Protocol):

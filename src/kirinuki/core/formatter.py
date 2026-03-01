@@ -9,7 +9,7 @@ from kirinuki.core.clip_utils import build_youtube_url
 from kirinuki.models.recommendation import SuggestResult, VideoWithRecommendations
 
 
-def _format_time(seconds: float) -> str:
+def format_time(seconds: float) -> str:
     """秒数を H:MM:SS または M:SS 形式にフォーマットする"""
     total = int(seconds)
     h, remainder = divmod(total, 3600)
@@ -47,8 +47,8 @@ class RecommendationFormatter:
             # 動画内は時系列順
             sorted_recs = sorted(video.recommendations, key=lambda r: r.start_time)
             for rec in sorted_recs:
-                start_str = _format_time(rec.start_time)
-                end_str = _format_time(rec.end_time)
+                start_str = format_time(rec.start_time)
+                end_str = format_time(rec.end_time)
                 url = build_youtube_url(rec.video_id, int(rec.start_time * 1000))
                 lines.append(f"  [{rec.score}/10] {start_str} 〜 {end_str}")
                 lines.append(f"    要約: {rec.summary}")

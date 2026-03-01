@@ -76,6 +76,12 @@ CREATE INDEX IF NOT EXISTS idx_unavailable_channel
 CREATE INDEX IF NOT EXISTS idx_unavailable_type
     ON unavailable_videos(channel_id, error_type);
 
+CREATE TABLE IF NOT EXISTS segment_versions (
+    video_id TEXT PRIMARY KEY REFERENCES videos(video_id),
+    prompt_version TEXT NOT NULL,
+    segmented_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY
 );
@@ -315,17 +321,84 @@ class Database:
             "(SELECT id FROM segments WHERE video_id = ?)",
             (video_id,),
         )
+        # segment_recommendationsが存在する場合は削除（suggest機能で作成されるテーブル）
+        try:
+            self._conn.execute(
+                "DELETE FROM segment_recommendations WHERE segment_id IN "
+                "(SELECT id FROM segments WHERE video_id = ?)",
+                (video_id,),
+            )
+        except sqlite3.OperationalError:
+            pass  # テーブルが存在しない環境
         cursor = self._conn.execute(
             "DELETE FROM segments WHERE video_id = ?",
+            (video_id,),
+        )
+        self._conn.execute(
+            "DELETE FROM segment_versions WHERE video_id = ?",
             (video_id,),
         )
         self._conn.commit()
         return cursor.rowcount
 
+    # --- Segment Version CRUD ---
+
+    def save_segment_version(self, video_id: str, prompt_version: str) -> None:
+        """セグメンテーション時のプロンプトバージョンを記録（upsert）"""
+        assert self._conn is not None
+        self._conn.execute(
+            """INSERT INTO segment_versions (video_id, prompt_version, segmented_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(video_id) DO UPDATE SET
+                   prompt_version = excluded.prompt_version,
+                   segmented_at = excluded.segmented_at""",
+            (video_id, prompt_version, datetime.now(tz=timezone.utc).isoformat()),
+        )
+        self._conn.commit()
+
+    def get_video_ids_with_segment_version(self, prompt_version: str) -> set[str]:
+        """指定バージョンでセグメンテーション完了済みのvideo_idセットを返す"""
+        rows = self._execute(
+            "SELECT video_id FROM segment_versions WHERE prompt_version = ?",
+            (prompt_version,),
+        ).fetchall()
+        return {row[0] for row in rows}
+
+    def delete_segment_version(self, video_id: str) -> None:
+        """セグメントバージョン記録を削除する"""
+        assert self._conn is not None
+        self._conn.execute(
+            "DELETE FROM segment_versions WHERE video_id = ?",
+            (video_id,),
+        )
+        self._conn.commit()
+
+    def get_unsegmented_video_ids_all(self) -> list[str]:
+        """字幕はあるがセグメントがない動画IDの一覧を返す。"""
+        rows = self._execute(
+            """SELECT DISTINCT sl.video_id FROM subtitle_lines sl
+               LEFT JOIN segments s ON sl.video_id = s.video_id
+               WHERE s.id IS NULL"""
+        ).fetchall()
+        return [row[0] for row in rows]
+
     def get_segmented_video_ids(self) -> list[str]:
         """セグメントが存在する動画IDの一覧を返す。"""
         rows = self._execute(
             "SELECT DISTINCT video_id FROM segments"
+        ).fetchall()
+        return [row[0] for row in rows]
+
+    def get_resegment_target_video_ids(self) -> list[str]:
+        """resegment対象の動画IDを公開日の新しい順に返す。
+
+        字幕またはセグメントが存在する動画が対象。
+        """
+        rows = self._execute(
+            """SELECT v.video_id FROM videos v
+               WHERE EXISTS (SELECT 1 FROM subtitle_lines sl WHERE sl.video_id = v.video_id)
+                  OR EXISTS (SELECT 1 FROM segments s WHERE s.video_id = v.video_id)
+               ORDER BY v.published_at IS NULL, v.published_at DESC"""
         ).fetchall()
         return [row[0] for row in rows]
 

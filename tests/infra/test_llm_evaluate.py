@@ -191,11 +191,11 @@ class TestBatchSplitting:
         mock_instance = mock_anthropic.return_value
         segments = _make_segments(120)
 
-        # 3バッチ: 1-50, 51-100, 101-120
+        # 3バッチ: 各バッチ内で連番1始まり（_evaluate_batchが連番マッピングするため）
         mock_instance.messages.create.side_effect = [
             _make_response_text(_make_eval_json(list(range(1, 51)))),
-            _make_response_text(_make_eval_json(list(range(51, 101)))),
-            _make_response_text(_make_eval_json(list(range(101, 121)))),
+            _make_response_text(_make_eval_json(list(range(1, 51)))),
+            _make_response_text(_make_eval_json(list(range(1, 21)))),
         ]
 
         result = client.evaluate_segments("video1", segments, "v1")
@@ -229,10 +229,10 @@ class TestPartialBatchFailure:
         mock_instance = mock_anthropic.return_value
         segments = _make_segments(80)
 
-        # バッチ1: 切り詰めで失敗、バッチ2: 成功
+        # バッチ1: 切り詰めで失敗、バッチ2: 成功（連番1始まり）
         mock_instance.messages.create.side_effect = [
             _make_response_text('{"evaluations": [', stop_reason="max_tokens"),
-            _make_response_text(_make_eval_json(list(range(51, 81)))),
+            _make_response_text(_make_eval_json(list(range(1, 31)))),
         ]
 
         result = client.evaluate_segments("video1", segments, "v1")

@@ -139,6 +139,31 @@ class TestResplitOversized:
         assert len(segments) == 1
         assert segments[0].summary == "長い話題"
 
+    def test_resplit_results_are_snapped(self, service, mock_llm, mock_embedding, db):
+        """再分割結果がsnap_to_entriesで字幕エントリーにスナップされる"""
+        # LLMのstart_msが字幕エントリーと微妙にずれているケース
+        mock_llm.analyze_topics.return_value = [
+            TopicSegment(start_ms=0, end_ms=600000, summary="長い話題"),
+        ]
+        mock_llm.analyze_topics_resplit.return_value = [
+            TopicSegment(start_ms=2000, end_ms=305000, summary="【長い話題】前半"),
+            TopicSegment(start_ms=305000, end_ms=598000, summary="【長い話題】後半"),
+        ]
+        mock_embedding.embed.return_value = [[0.1] * 1536, [0.2] * 1536]
+
+        entries = [
+            SubtitleEntry(start_ms=i * 60000, duration_ms=5000, text=f"テスト{i}")
+            for i in range(10)
+        ]
+        segments = service.segment_video_from_entries(
+            "vid1", entries, 600, max_segment_ms=300000
+        )
+        assert len(segments) == 2
+        # resplit結果がsnap後に字幕エントリーの境界に揃っていること
+        stored = db.list_segments("vid1")
+        assert stored[0].start_ms == 0  # 2000 → snapped to 0
+        assert stored[1].start_ms == 300000  # 305000 → snapped to 300000
+
     def test_keeps_original_when_resplit_returns_single(self, service, mock_llm, mock_embedding, db):
         """再分割が1つしか返さない場合は元セグメントを保持"""
         mock_llm.analyze_topics.return_value = [
@@ -193,6 +218,76 @@ class TestResegment:
         """存在しない動画IDでは空リスト"""
         segments = service.resegment_video("nonexistent")
         assert segments == []
+
+    def test_resegment_keeps_segments_on_llm_failure(self, service, mock_llm, mock_embedding, db):
+        """LLMが空リストを返した場合、旧セグメントが保持される"""
+        # 既存セグメント
+        db.save_segments_with_vectors(
+            "vid1",
+            [{"start_ms": 0, "end_ms": 3600000, "summary": "旧セグメント"}],
+            [[0.1] * 1536],
+        )
+        # 字幕データ
+        db.save_subtitle_lines("vid1", [
+            SubtitleEntry(start_ms=0, duration_ms=5000, text="テスト字幕"),
+        ])
+
+        # LLMが空リストを返す（JSONパースエラー等でセグメント生成失敗）
+        mock_llm.analyze_topics.return_value = []
+
+        segments = service.resegment_video("vid1")
+        assert segments == []
+
+        # 旧セグメントが保持されていることを確認
+        stored = db.list_segments("vid1")
+        assert len(stored) == 1
+        assert stored[0].summary == "旧セグメント"
+
+
+class TestSegmentVersionRecording:
+    def test_segment_version_recorded_on_save(self, service, mock_llm, mock_embedding, db):
+        """セグメント保存時にプロンプトバージョンが記録される"""
+        from kirinuki.infra.llm_client import SEGMENT_PROMPT_VERSION
+
+        mock_llm.analyze_topics.return_value = [
+            TopicSegment(start_ms=0, end_ms=60000, summary="話題1"),
+        ]
+        mock_embedding.embed.return_value = [[0.1] * 1536]
+
+        entries = [SubtitleEntry(start_ms=0, duration_ms=5000, text="テスト")]
+        service.segment_video_from_entries("vid1", entries, 60)
+
+        result = db.get_video_ids_with_segment_version(SEGMENT_PROMPT_VERSION)
+        assert "vid1" in result
+
+    def test_segment_version_updated_on_resegment(self, service, mock_llm, mock_embedding, db):
+        """再セグメンテーション時にバージョンが更新される"""
+        from kirinuki.infra.llm_client import SEGMENT_PROMPT_VERSION
+
+        # 初回セグメンテーション
+        db.save_subtitle_lines("vid1", [
+            SubtitleEntry(start_ms=0, duration_ms=5000, text="テスト字幕"),
+        ])
+        mock_llm.analyze_topics.return_value = [
+            TopicSegment(start_ms=0, end_ms=3600000, summary="セグメント"),
+        ]
+        mock_embedding.embed.return_value = [[0.1] * 1536]
+
+        service.resegment_video("vid1")
+        result = db.get_video_ids_with_segment_version(SEGMENT_PROMPT_VERSION)
+        assert "vid1" in result
+
+    def test_no_version_recorded_when_llm_returns_empty(self, service, mock_llm, mock_embedding, db):
+        """LLMが空リストを返した場合はバージョンが記録されない"""
+        from kirinuki.infra.llm_client import SEGMENT_PROMPT_VERSION
+
+        mock_llm.analyze_topics.return_value = []
+
+        entries = [SubtitleEntry(start_ms=0, duration_ms=5000, text="テスト")]
+        service.segment_video_from_entries("vid1", entries, 60)
+
+        result = db.get_video_ids_with_segment_version(SEGMENT_PROMPT_VERSION)
+        assert "vid1" not in result
 
 
 class TestListSegments:

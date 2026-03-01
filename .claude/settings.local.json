@@ -14,7 +14,10 @@
       "Bash(uv run:*)",
       "Bash(xargs grep:*)",
       "Bash(python3:*)",
-      "Bash(sqlite3:*)"
+      "Bash(sqlite3:*)",
+      "Bash(.venv/Scripts/python:*)",
+      "Bash(uv pip:*)",
+      "Bash(.venv/Scripts/python.exe:*)"
     ]
   }
 }

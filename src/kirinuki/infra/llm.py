@@ -13,7 +13,6 @@ from kirinuki.models.recommendation import SegmentRecommendation
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v2"
 DEFAULT_MAX_TOKENS = 8192
 BATCH_SIZE = 50
 
@@ -110,10 +109,13 @@ class LLMClient:
         segments: list[dict[str, str | int]],
     ) -> list[SegmentEvaluation] | None:
         """1バッチ分のセグメントをLLMで評価する。失敗時はNoneを返す。"""
+        # 連番（1始まり）→ 実セグメントのマッピング
+        index_to_seg = {i + 1: seg for i, seg in enumerate(segments)}
+
         segments_text = "\n".join(
-            f"- ID: {seg['id']}, 区間: {seg['start_ms']/1000:.0f}s〜{seg['end_ms']/1000:.0f}s, "
+            f"- ID: {i + 1}, 区間: {seg['start_ms']/1000:.0f}s〜{seg['end_ms']/1000:.0f}s, "
             f"内容: {seg['summary']}"
-            for seg in segments
+            for i, seg in enumerate(segments)
         )
 
         prompt = EVALUATION_PROMPT.format(segments_text=segments_text)
@@ -149,7 +151,20 @@ class LLMClient:
             logger.warning("Failed to validate LLM evaluation response: %s", raw_text[:200])
             return None
 
-        return parsed.evaluations
+        # 連番 → 実ID に変換 + バリデーション
+        mapped: list[SegmentEvaluation] = []
+        for ev in parsed.evaluations:
+            real_seg = index_to_seg.get(ev.segment_id)
+            if real_seg is None:
+                logger.warning("LLM returned unknown segment index %d, skipping", ev.segment_id)
+                continue
+            mapped.append(SegmentEvaluation(
+                segment_id=real_seg["id"],
+                score=ev.score,
+                summary=ev.summary,
+                appeal=ev.appeal,
+            ))
+        return mapped
 
     @staticmethod
     def _find_segment_time(

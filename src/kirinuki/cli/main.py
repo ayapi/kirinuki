@@ -8,12 +8,13 @@ import click
 
 from kirinuki.core.channel_service import ChannelService
 from kirinuki.core.clip_utils import build_youtube_url
+from kirinuki.core.formatter import format_time
 from kirinuki.core.search_service import SearchService
 from kirinuki.core.segmentation_service import SegmentationService
 from kirinuki.core.sync_service import SyncService
 from kirinuki.infra.database import Database
 from kirinuki.infra.embedding_provider import OpenAIEmbeddingProvider
-from kirinuki.infra.llm_client import LlmClient
+from kirinuki.infra.llm_client import SEGMENT_PROMPT_VERSION, LlmClient
 from kirinuki.infra.ytdlp_client import YtdlpClient
 from kirinuki.cli.cookie import cookie as cookie_cmd
 from kirinuki.cli.resolve import resolve_channel_id
@@ -198,13 +199,11 @@ def search(query: str, limit: int) -> None:
             return
         click.echo(f"検索結果: {len(results)}件\n")
         for i, r in enumerate(results, 1):
-            start_min = r.start_time_ms // 60000
-            start_sec = (r.start_time_ms % 60000) // 1000
-            end_min = r.end_time_ms // 60000
-            end_sec = (r.end_time_ms % 60000) // 1000
+            start_str = format_time(r.start_time_ms / 1000)
+            end_str = format_time(r.end_time_ms / 1000)
             click.echo(f"  {i}. [{r.channel_name}] {r.video_title}")
             click.echo(
-                f"     {start_min:02d}:{start_sec:02d} - {end_min:02d}:{end_sec:02d}"
+                f"     {start_str} - {end_str}"
                 f" | {r.summary}"
             )
             if r.match_type is not None:
@@ -224,13 +223,11 @@ def segments(video_id: str) -> None:
             return
         click.echo(f"セグメント一覧 ({len(segs)}件):\n")
         for s in segs:
-            start_min = s.start_ms // 60000
-            start_sec = (s.start_ms % 60000) // 1000
-            end_min = s.end_ms // 60000
-            end_sec = (s.end_ms % 60000) // 1000
+            start_str = format_time(s.start_ms / 1000)
+            end_str = format_time(s.end_ms / 1000)
             url = build_youtube_url(video_id, s.start_ms)
             click.echo(
-                f"  {start_min:02d}:{start_sec:02d} - {end_min:02d}:{end_sec:02d}"
+                f"  {start_str} - {end_str}"
                 f" | {s.summary}"
             )
             click.echo(f"     {url}")
@@ -240,7 +237,8 @@ def segments(video_id: str) -> None:
 @cli.command()
 @click.option("--video-id", default=None, help="特定の動画IDのみ再セグメンテーション")
 @click.option("--max-segment-ms", default=300000, type=int, help="セグメント最大長（ミリ秒）")
-def resegment(video_id: str | None, max_segment_ms: int) -> None:
+@click.option("--force", is_flag=True, default=False, help="プロンプトバージョンに関わらず全動画を再処理")
+def resegment(video_id: str | None, max_segment_ms: int, force: bool) -> None:
     """既存セグメントを削除して再セグメンテーションする"""
     with create_app_context() as ctx:
         if video_id:
@@ -250,9 +248,23 @@ def resegment(video_id: str | None, max_segment_ms: int) -> None:
             )
             click.echo(f"完了: {len(segments)}セグメント生成")
         else:
-            video_ids = ctx.db.get_segmented_video_ids()
+            video_ids = ctx.db.get_resegment_target_video_ids()
             if not video_ids:
-                click.echo("セグメント済みの動画はありません")
+                click.echo("対象の動画はありません")
+                return
+
+            if not force:
+                already_done = ctx.db.get_video_ids_with_segment_version(SEGMENT_PROMPT_VERSION)
+                before_count = len(video_ids)
+                video_ids = [vid for vid in video_ids if vid not in already_done]
+                skipped = before_count - len(video_ids)
+                if skipped > 0:
+                    click.echo(
+                        f"プロンプト{SEGMENT_PROMPT_VERSION}で処理済みの{skipped}動画をスキップ"
+                    )
+
+            if not video_ids:
+                click.echo("対象の動画はありません")
                 return
             click.echo(f"全{len(video_ids)}動画を再セグメンテーションします...")
             for i, vid in enumerate(video_ids, 1):
