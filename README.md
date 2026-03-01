@@ -88,6 +88,9 @@ kirinuki channel videos [channel_id]
 ```bash
 # 全登録チャンネルの字幕を差分同期
 kirinuki sync
+
+# セグメントの最大長を指定して同期（デフォルト: 300000ms = 5分）
+kirinuki sync --max-segment-ms 600000
 ```
 
 登録チャンネルの動画から字幕とメタデータを取得し、ローカル DB に蓄積します。同期済みの動画はスキップされます。
@@ -107,6 +110,34 @@ kirinuki search "コラボ配信" --limit 5
 ```bash
 # 動画の話題区間一覧を表示
 kirinuki segments <video_id>
+```
+
+### セグメントの再生成
+
+```bash
+# プロンプトが更新された動画のセグメントを再生成
+kirinuki resegment
+
+# 特定の動画だけ再生成
+kirinuki resegment --video-id <video_id>
+
+# 全動画を強制的に再生成
+kirinuki resegment --force
+
+# セグメント最大長を指定
+kirinuki resegment --max-segment-ms 600000
+```
+
+### 利用不可動画のリセット
+
+取得時に「利用不可」となった動画の記録をリセットし、次回 sync 時に再取得を試みます。
+
+```bash
+# 全チャンネルの利用不可レコードをリセット
+kirinuki unavailable reset
+
+# 特定チャンネルのみリセット
+kirinuki unavailable reset --channel <channel_id>
 ```
 
 ### Cookie 管理
