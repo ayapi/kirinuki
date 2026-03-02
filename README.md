@@ -20,12 +20,14 @@ YouTube Live 配信アーカイブの字幕を蓄積し、LLM で話題区間を
 
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/)
+- [Node.js](https://nodejs.org/) 20.0.0+（yt-dlp の YouTube JS 処理に必要、セキュリティ上 25+ を強く推奨）
 - [ffmpeg](https://ffmpeg.org/)（切り抜き機能を使う場合）
 - Anthropic API キー（話題セグメンテーション・推薦用）
 - OpenAI API キー（埋め込みベクトル生成・セマンティック検索用）
 
 ### ビルド済みバイナリを使う場合
 
+- [Node.js](https://nodejs.org/) 20.0.0+（yt-dlp の YouTube JS 処理に必要、セキュリティ上 25+ を強く推奨）
 - [ffmpeg](https://ffmpeg.org/)（切り抜き機能を使う場合）
 - Anthropic API キー（話題セグメンテーション・推薦用）
 - OpenAI API キー（埋め込みベクトル生成・セマンティック検索用）
@@ -176,6 +178,8 @@ kirinuki clip https://www.youtube.com/watch?v=dQw4w9WgXcQ clip.mp4 5:00-10:00
 ```
 
 yt-dlp の部分ダウンロード機能を利用し、指定範囲のフラグメントのみを取得します。動画全体をダウンロードしないため、長時間配信からの切り抜きでも高速です。
+
+メンバー限定動画の場合は Cookie が自動的に使用されます（`kirinuki cookie set` で事前に設定が必要）。
 
 | オプション | デフォルト | 説明 |
 |---|---|---|
