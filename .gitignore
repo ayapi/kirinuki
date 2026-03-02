@@ -37,3 +37,6 @@ uv.lock
 
 # App data
 *.db
+
+# Logs
+*.log
