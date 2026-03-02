@@ -5,6 +5,8 @@ from urllib.parse import parse_qs, urlparse
 
 from kirinuki.core.errors import InvalidURLError
 
+_YOUTUBE_VIDEO_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{11}$")
+
 _YOUTUBE_PATTERNS = [
     # https://www.youtube.com/watch?v=VIDEO_ID
     re.compile(r"^https?://(?:www\.)?youtube\.com/watch"),
@@ -13,6 +15,20 @@ _YOUTUBE_PATTERNS = [
     # https://www.youtube.com/live/VIDEO_ID
     re.compile(r"^https?://(?:www\.)?youtube\.com/live/"),
 ]
+
+
+def resolve_video_id(video: str) -> str:
+    """URL or 動画IDを受け取り、動画IDを返す。
+
+    - 11文字の動画IDパターンにマッチ → そのまま返す
+    - それ以外 → extract_video_id() でURL解析を試みる
+
+    Raises:
+        InvalidURLError: URLとしても動画IDとしても無効な場合
+    """
+    if _YOUTUBE_VIDEO_ID_RE.match(video):
+        return video
+    return extract_video_id(video)
 
 
 def extract_video_id(url: str) -> str:

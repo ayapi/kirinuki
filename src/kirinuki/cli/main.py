@@ -300,6 +300,8 @@ def unavailable_reset(channel_id: str | None) -> None:
 cli.add_command(cookie_cmd, "cookie")
 cli.add_command(suggest_cmd, "suggest")
 
+import kirinuki.cli.clip  # noqa: E402, F401  clip コマンド登録
+
 
 if __name__ == "__main__":
     cli()

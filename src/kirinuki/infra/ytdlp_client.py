@@ -54,6 +54,7 @@ class YtdlpClient:
             "no_warnings": True,
             "skip_download": True,
             "ignore_no_formats_error": True,
+            "remote_components": ["ejs:github"],
         }
         if self._config.cookie_file_path.exists():
             opts["cookiefile"] = str(self._config.cookie_file_path)
@@ -341,8 +342,9 @@ class YtdlpClient:
         opts: dict = {
             "quiet": True,
             "no_warnings": True,
-            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]",
+            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestvideo+bestaudio/best",
             "outtmpl": str(output_dir / f"{video_id}.%(ext)s"),
+            "remote_components": ["ejs:github"],
         }
         if cookie_file:
             opts["cookiefile"] = str(cookie_file)

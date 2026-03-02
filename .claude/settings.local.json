@@ -17,7 +17,13 @@
       "Bash(sqlite3:*)",
       "Bash(.venv/Scripts/python:*)",
       "Bash(uv pip:*)",
-      "Bash(.venv/Scripts/python.exe:*)"
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(winget install:*)",
+      "Bash(powershell:*)",
+      "Bash(export:*)",
+      "Bash(\"/c/Users/color/.deno/bin/deno.exe\":*)",
+      "Bash(cargo:*)",
+      "Bash(\"/c/Users/color/AppData/Local/Microsoft/WinGet/Packages/DenoLand.Deno_Microsoft.Winget.Source_8wekyb3d8bbwe/deno.exe\":*)"
     ]
   }
 }
