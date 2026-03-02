@@ -153,6 +153,43 @@ def parse_time_ranges(time_ranges_str: str) -> list:
     return ranges
 
 
+def sanitize_filename(text: str, max_length: int = 50) -> str:
+    """テキストからファイル名に使用できない文字を除去し、長さを制限する。
+
+    除去対象: / \\ : * ? " < > | および制御文字
+    空白はアンダースコアに置換。末尾のドットとスペースを除去。
+    """
+    # 制御文字を空白に置換
+    result = re.sub(r"[\x00-\x1f\x7f]", " ", text)
+    # ファイル名禁止文字を除去
+    result = re.sub(r'[/\\:*?"<>|]', "", result)
+    # 空白をアンダースコアに置換
+    result = re.sub(r"\s+", "_", result)
+    # 末尾のドットとアンダースコアを除去
+    result = result.rstrip("._")
+    # 長さ制限
+    if len(result) > max_length:
+        result = result[:max_length].rstrip("._")
+    # 空の場合のフォールバック
+    if not result:
+        result = "clip"
+    return result
+
+
+def generate_clip_filename(video_id: str, start_ms: int, summary: str) -> str:
+    """切り抜きファイル名を自動生成する。
+
+    形式: {video_id}-{M}m{SS}s-{sanitized_summary}.mp4
+    例: dQw4w9WgXcQ-18m03s-面白い話題について.mp4
+    """
+    total_seconds = start_ms // 1000
+    minutes = total_seconds // 60
+    seconds = total_seconds % 60
+    time_str = f"{minutes}m{seconds:02d}s"
+    safe_summary = sanitize_filename(summary)
+    return f"{video_id}-{time_str}-{safe_summary}.mp4"
+
+
 def build_numbered_filename(filename: str, index: int, total: int) -> str:
     """連番付きファイル名を生成する。
 

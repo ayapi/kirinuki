@@ -8,7 +8,7 @@ import click
 
 from kirinuki.core.channel_service import ChannelService
 from kirinuki.core.clip_utils import build_youtube_url
-from kirinuki.core.formatter import format_time
+from kirinuki.core.formatter import format_time, format_time_range
 from kirinuki.core.search_service import SearchService
 from kirinuki.core.segmentation_service import SegmentationService
 from kirinuki.core.sync_service import SyncService
@@ -190,20 +190,25 @@ def sync(max_segment_ms: int) -> None:
 @cli.command()
 @click.argument("query")
 @click.option("--limit", "-n", default=10, help="検索結果の最大件数")
-def search(query: str, limit: int) -> None:
+@click.option("--tui", is_flag=True, default=False, help="TUIモードで結果を表示し、切り抜きを実行")
+def search(query: str, limit: int, tui: bool) -> None:
     """全動画を横断して検索する"""
     with create_app_context() as ctx:
         results = ctx.search_service.search(query, limit=limit)
         if not results:
             click.echo("該当する結果はありませんでした")
             return
+
+        if tui:
+            _run_tui_flow_search(results, ctx.config)
+            return
+
         click.echo(f"検索結果: {len(results)}件\n")
         for i, r in enumerate(results, 1):
-            start_str = format_time(r.start_time_ms / 1000)
-            end_str = format_time(r.end_time_ms / 1000)
+            time_range = format_time_range(r.start_time_ms / 1000, r.end_time_ms / 1000)
             click.echo(f"  {i}. [{r.channel_name}] {r.video_title}")
             click.echo(
-                f"     {start_str} - {end_str}"
+                f"     {time_range}"
                 f" | {r.summary}"
             )
             if r.match_type is not None:
@@ -214,20 +219,25 @@ def search(query: str, limit: int) -> None:
 
 @cli.command()
 @click.argument("video_id")
-def segments(video_id: str) -> None:
+@click.option("--tui", is_flag=True, default=False, help="TUIモードで結果を表示し、切り抜きを実行")
+def segments(video_id: str, tui: bool) -> None:
     """動画の話題セグメント一覧を表示する"""
     with create_app_context() as ctx:
         segs = ctx.segmentation_service.list_segments(video_id)
         if not segs:
             click.echo("セグメントはありません")
             return
+
+        if tui:
+            _run_tui_flow_segments(segs, ctx.config)
+            return
+
         click.echo(f"セグメント一覧 ({len(segs)}件):\n")
         for s in segs:
-            start_str = format_time(s.start_ms / 1000)
-            end_str = format_time(s.end_ms / 1000)
+            time_range = format_time_range(s.start_ms / 1000, s.end_ms / 1000)
             url = build_youtube_url(video_id, s.start_ms)
             click.echo(
-                f"  {start_str} - {end_str}"
+                f"  {time_range}"
                 f" | {s.summary}"
             )
             click.echo(f"     {url}")
@@ -295,6 +305,63 @@ def unavailable_reset(channel_id: str | None) -> None:
     with create_app_context() as ctx:
         cleared = ctx.db.clear_all_unavailable(channel_id)
         click.echo(f"unavailable記録を{cleared}件リセットしました。")
+
+
+def _run_tui_flow_search(results: list, config: AppConfig) -> None:
+    """search結果のTUIフロー共通処理"""
+    from kirinuki.cli.tui import (
+        adapt_search_results,
+        create_clip_service,
+        execute_clips,
+        run_tui_select,
+    )
+
+    candidates = adapt_search_results(results)
+    if not candidates:
+        click.echo("TUI表示可能な結果がありません")
+        return
+    _run_tui_clip_flow(candidates, config)
+
+
+def _run_tui_flow_segments(segs: list, config: AppConfig) -> None:
+    """segments結果のTUIフロー共通処理"""
+    from kirinuki.cli.tui import adapt_segments
+
+    candidates = adapt_segments(segs)
+    if not candidates:
+        click.echo("TUI表示可能な結果がありません")
+        return
+    _run_tui_clip_flow(candidates, config)
+
+
+def _run_tui_clip_flow(candidates: list, config: AppConfig) -> None:
+    """TUI選択→切り抜き実行の共通フロー"""
+    from kirinuki.cli.tui import create_clip_service, execute_clips, run_tui_select
+
+    selected = run_tui_select(candidates)
+    if not selected:
+        click.echo("キャンセルしました")
+        return
+
+    clip_service = create_clip_service(config)
+    outcomes = execute_clips(
+        selected, clip_service, config.output_dir, on_progress=click.echo
+    )
+
+    # サマリー表示
+    success = sum(1 for o in outcomes if o.output_path is not None)
+    failure = sum(1 for o in outcomes if o.output_path is None)
+    click.echo()
+    click.echo(f"完了: 成功 {success}件 / 失敗 {failure}件")
+    for o in outcomes:
+        if o.output_path is not None:
+            click.echo(f"  {o.output_path}")
+    for o in outcomes:
+        if o.error is not None:
+            from kirinuki.core.formatter import format_time_range as fmt_tr
+
+            tr = fmt_tr(o.range.start_seconds, o.range.end_seconds)
+            click.echo(f"  失敗 ({tr}): {o.error}")
 
 
 cli.add_command(cookie_cmd, "cookie")

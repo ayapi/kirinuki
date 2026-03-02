@@ -2,7 +2,8 @@
 
 import json
 
-from kirinuki.core.formatter import RecommendationFormatter
+from kirinuki.core.clip_utils import parse_time_ranges
+from kirinuki.core.formatter import RecommendationFormatter, format_time, format_time_range
 from kirinuki.models.recommendation import (
     SegmentRecommendation,
     SuggestResult,
@@ -48,6 +49,52 @@ def _make_result(
         ]
     total = sum(len(v.recommendations) for v in videos)
     return SuggestResult(videos=videos, total_candidates=total, filtered_count=total)
+
+
+class TestFormatTime:
+    def test_under_one_hour(self) -> None:
+        assert format_time(65.0) == "1:05"
+
+    def test_over_one_hour(self) -> None:
+        assert format_time(3661.0) == "1:01:01"
+
+    def test_zero(self) -> None:
+        assert format_time(0.0) == "0:00"
+
+
+class TestFormatTimeRange:
+    def test_basic_range(self) -> None:
+        result = format_time_range(60.0, 180.0)
+        assert result == "1:00-3:00"
+
+    def test_no_spaces_around_hyphen(self) -> None:
+        result = format_time_range(120.0, 300.0)
+        assert " " not in result
+
+    def test_over_one_hour(self) -> None:
+        result = format_time_range(3600.0, 5400.0)
+        assert result == "1:00:00-1:30:00"
+
+    def test_mixed_duration(self) -> None:
+        """開始が1時間未満、終了が1時間以上"""
+        result = format_time_range(1800.0, 3700.0)
+        assert result == "30:00-1:01:40"
+
+    def test_roundtrip_with_clip_parser(self) -> None:
+        """format_time_rangeの出力がclipパーサーで正しくパースされる"""
+        result = format_time_range(1083.0, 1171.0)
+        ranges = parse_time_ranges(result)
+        assert len(ranges) == 1
+        assert ranges[0].start_seconds == 1083.0
+        assert ranges[0].end_seconds == 1171.0
+
+    def test_roundtrip_over_one_hour(self) -> None:
+        """1時間以上のラウンドトリップ"""
+        result = format_time_range(3661.0, 5400.0)
+        ranges = parse_time_ranges(result)
+        assert len(ranges) == 1
+        assert ranges[0].start_seconds == 3661.0
+        assert ranges[0].end_seconds == 5400.0
 
 
 class TestFormatText:

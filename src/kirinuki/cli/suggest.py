@@ -34,7 +34,8 @@ def _status(msg: str, is_json: bool) -> None:
 @click.option("--count", default=3, show_default=True, help="対象アーカイブ件数")
 @click.option("--threshold", default=7, show_default=True, help="推薦スコア閾値（1〜10）")
 @click.option("--json", "output_json", is_flag=True, default=False, help="JSON形式で出力")
-def suggest(channel: str | None, count: int, threshold: int, output_json: bool) -> None:
+@click.option("--tui", is_flag=True, default=False, help="TUIモードで結果を表示し、切り抜きを実行")
+def suggest(channel: str | None, count: int, threshold: int, output_json: bool, tui: bool) -> None:
     """チャンネルの最新アーカイブから切り抜き候補を推薦する。
 
     CHANNEL: チャンネルID（例: UC...）。省略時は登録チャンネルが1つなら自動選択。
@@ -74,6 +75,10 @@ def suggest(channel: str | None, count: int, threshold: int, output_json: bool) 
                 click.echo(msg)
             return
 
+        if tui:
+            _run_tui_flow_suggest(result, config)
+            return
+
         _status("結果を表示中...\n", output_json)
 
         if output_json:
@@ -90,3 +95,43 @@ def suggest(channel: str | None, count: int, threshold: int, output_json: bool) 
     except Exception as e:
         click.echo(f"エラー: 予期しないエラーが発生しました: {e}", err=True)
         sys.exit(1)
+
+
+def _run_tui_flow_suggest(result: object, config: AppConfig) -> None:
+    """suggest結果のTUIフロー処理"""
+    from kirinuki.cli.tui import (
+        adapt_suggest_results,
+        create_clip_service,
+        execute_clips,
+        run_tui_select,
+    )
+
+    candidates = adapt_suggest_results(result)
+    if not candidates:
+        click.echo("TUI表示可能な結果がありません")
+        return
+
+    selected = run_tui_select(candidates)
+    if not selected:
+        click.echo("キャンセルしました")
+        return
+
+    clip_service = create_clip_service(config)
+    outcomes = execute_clips(
+        selected, clip_service, config.output_dir, on_progress=click.echo
+    )
+
+    # サマリー表示
+    success = sum(1 for o in outcomes if o.output_path is not None)
+    failure = sum(1 for o in outcomes if o.output_path is None)
+    click.echo()
+    click.echo(f"完了: 成功 {success}件 / 失敗 {failure}件")
+    for o in outcomes:
+        if o.output_path is not None:
+            click.echo(f"  {o.output_path}")
+    for o in outcomes:
+        if o.error is not None:
+            from kirinuki.core.formatter import format_time_range as fmt_tr
+
+            tr = fmt_tr(o.range.start_seconds, o.range.end_seconds)
+            click.echo(f"  失敗 ({tr}): {o.error}")

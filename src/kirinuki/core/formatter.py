@@ -19,6 +19,15 @@ def format_time(seconds: float) -> str:
     return f"{m}:{s:02d}"
 
 
+def format_time_range(start_seconds: float, end_seconds: float) -> str:
+    """2つの秒数を 'MM:SS-MM:SS' 形式の文字列に変換する。
+
+    1時間以上の場合は 'H:MM:SS-H:MM:SS' 形式。
+    clipコマンドのtime_ranges引数にそのまま渡せる形式を返す。
+    """
+    return f"{format_time(start_seconds)}-{format_time(end_seconds)}"
+
+
 class RecommendationFormatter:
     def format_text(self, result: SuggestResult) -> str:
         """推薦結果を人間可読テキストにフォーマットする。"""
@@ -47,10 +56,9 @@ class RecommendationFormatter:
             # 動画内は時系列順
             sorted_recs = sorted(video.recommendations, key=lambda r: r.start_time)
             for rec in sorted_recs:
-                start_str = format_time(rec.start_time)
-                end_str = format_time(rec.end_time)
+                time_range = format_time_range(rec.start_time, rec.end_time)
                 url = build_youtube_url(rec.video_id, int(rec.start_time * 1000))
-                lines.append(f"  [{rec.score}/10] {start_str} 〜 {end_str}")
+                lines.append(f"  [{rec.score}/10] {time_range}")
                 lines.append(f"    要約: {rec.summary}")
                 lines.append(f"    魅力: {rec.appeal}")
                 lines.append(f"    URL: {url}")

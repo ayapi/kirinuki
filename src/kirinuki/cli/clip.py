@@ -13,7 +13,7 @@ from kirinuki.core.errors import (
     InvalidURLError,
     VideoDownloadError,
 )
-from kirinuki.core.formatter import format_time
+from kirinuki.core.formatter import format_time_range
 from kirinuki.infra.ytdlp_client import YtdlpClient
 from kirinuki.models.clip import MultiClipRequest
 from kirinuki.models.config import AppConfig
@@ -85,17 +85,15 @@ def clip(
     )
     for outcome in result.outcomes:
         if outcome.output_path is not None:
-            start_str = format_time(outcome.range.start_seconds)
-            end_str = format_time(outcome.range.end_seconds)
+            time_range = format_time_range(outcome.range.start_seconds, outcome.range.end_seconds)
             click.echo(
-                f"  {outcome.output_path} ({start_str} - {end_str})"
+                f"  {outcome.output_path} ({time_range})"
             )
 
     if result.failure_count > 0:
         for outcome in result.outcomes:
             if outcome.error is not None:
-                start_str = format_time(outcome.range.start_seconds)
-                end_str = format_time(outcome.range.end_seconds)
+                time_range = format_time_range(outcome.range.start_seconds, outcome.range.end_seconds)
                 click.echo(
-                    f"  失敗 ({start_str} - {end_str}): {outcome.error}"
+                    f"  失敗 ({time_range}): {outcome.error}"
                 )
