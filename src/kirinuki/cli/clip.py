@@ -28,7 +28,8 @@ from kirinuki.models.config import AppConfig
     type=click.Path(), help="出力先ディレクトリ",
 )
 def clip(
-    video: str, filename: str, time_ranges: str, output_dir_str: str | None,
+    video: str, filename: str, time_ranges: str,
+    output_dir_str: str | None,
 ) -> None:
     """動画の指定区間を切り抜く
 
@@ -52,19 +53,12 @@ def clip(
     config = AppConfig()
     output_dir = Path(output_dir_str) if output_dir_str else config.output_dir
 
-    cookie = (
-        config.cookie_file_path
-        if config.cookie_file_path.exists()
-        else None
-    )
-
     try:
         request = MultiClipRequest(
             video_id=video_id,
             filename=filename,
             output_dir=output_dir,
             ranges=ranges,
-            cookie_file=cookie,
         )
     except ValidationError as e:
         click.echo(f"エラー: リクエストが不正です: {e}", err=True)

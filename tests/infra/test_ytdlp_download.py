@@ -12,7 +12,10 @@ from kirinuki.models.config import AppConfig
 
 @pytest.fixture
 def client(tmp_path: Path) -> YtdlpClient:
-    config = AppConfig(db_path=tmp_path / "data.db")
+    config = AppConfig(
+        db_path=tmp_path / "data.db",
+        cookie_file_path=tmp_path / "nonexistent_cookies.txt",
+    )
     return YtdlpClient(config)
 
 
@@ -151,9 +154,10 @@ class TestDownloadSection:
             client.download_section("vid1", 60.0, 120.0, output_path)
 
     @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
-    def test_download_section_auth_error(
+    def test_download_section_auth_error_no_cookie(
         self, mock_ydl_cls: MagicMock, client: YtdlpClient, tmp_path: Path
     ) -> None:
+        """認証エラーでCookieファイルがない場合はエラー"""
         import yt_dlp
 
         mock_ydl = MagicMock()
@@ -167,3 +171,39 @@ class TestDownloadSection:
 
         with pytest.raises(AuthenticationRequiredError):
             client.download_section("vid1", 60.0, 120.0, output_path)
+
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_download_section_auth_retry_with_cookie(
+        self, mock_ydl_cls: MagicMock, tmp_path: Path
+    ) -> None:
+        """認証エラー時にCookieファイルがあれば自動リトライ"""
+        import yt_dlp
+
+        cookie_file = tmp_path / "cookies.txt"
+        cookie_file.write_text("# Netscape cookie file")
+        config = AppConfig(
+            db_path=tmp_path / "data.db",
+            cookie_file_path=cookie_file,
+        )
+        c = YtdlpClient(config)
+
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        # 1回目: 認証エラー、2回目: 成功
+        mock_ydl.extract_info.side_effect = [
+            yt_dlp.DownloadError("Sign in to confirm you're not a bot"),
+            {"id": "vid1"},
+        ]
+
+        output_path = tmp_path / "clip.mp4"
+        output_path.touch()
+
+        result = c.download_section("vid1", 60.0, 120.0, output_path)
+        assert result == output_path
+        assert mock_ydl.extract_info.call_count == 2
+
+        # リトライ時にcookiefileが設定されていることを確認
+        second_call_opts = mock_ydl_cls.call_args_list[1][0][0]
+        assert second_call_opts.get("cookiefile") == str(cookie_file)

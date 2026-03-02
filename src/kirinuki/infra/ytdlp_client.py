@@ -47,14 +47,22 @@ class YtdlpClient:
     def __init__(self, config: AppConfig) -> None:
         self._config = config
 
+    @staticmethod
+    def _common_opts() -> dict:
+        """全リクエスト共通のオプション。"""
+        return {
+            "quiet": True,
+            "no_warnings": True,
+            "remote_components": ["ejs:github"],
+            "js_runtimes": {"node": {}},
+        }
+
     def _base_opts(self) -> dict:
         """情報抽出用ベースオプション。download_video()はこのメソッドを使用しない。"""
         opts: dict = {
-            "quiet": True,
-            "no_warnings": True,
+            **self._common_opts(),
             "skip_download": True,
             "ignore_no_formats_error": True,
-            "remote_components": ["ejs:github"],
         }
         if self._config.cookie_file_path.exists():
             opts["cookiefile"] = str(self._config.cookie_file_path)
@@ -340,11 +348,9 @@ class YtdlpClient:
     ) -> Path:
         """動画を指定ディレクトリにダウンロードし、ファイルパスを返す。"""
         opts: dict = {
-            "quiet": True,
-            "no_warnings": True,
+            **self._common_opts(),
             "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestvideo+bestaudio/best",
             "outtmpl": str(output_dir / f"{video_id}.%(ext)s"),
-            "remote_components": ["ejs:github"],
         }
         if cookie_file:
             opts["cookiefile"] = str(cookie_file)
@@ -386,26 +392,32 @@ class YtdlpClient:
         yt-dlp の download_ranges API を使用。DASH形式のフラグメントレベルで
         部分ダウンロードを行い、ffmpegによるトリムを一体処理する。
 
+        認証が必要な動画（メンバー限定等）は自動検出し、Cookieファイルが
+        存在すればリトライする。
+
         Raises:
             VideoDownloadError: ダウンロード失敗
-            AuthenticationRequiredError: 認証が必要
+            AuthenticationRequiredError: 認証が必要だがCookieが未設定
         """
         from yt_dlp.utils import download_range_func
 
         opts: dict = {
-            "quiet": True,
-            "no_warnings": True,
+            **self._common_opts(),
+            "format": (
+                "bestvideo[ext=mp4]+bestaudio[ext=m4a]"
+                "/best[ext=mp4]"
+                "/bestvideo+bestaudio/best"
+            ),
             "format_sort": ["proto:https"],
             "download_ranges": download_range_func(
                 None, [(start_seconds, end_seconds)]
             ),
             "outtmpl": str(output_path),
-            "remote_components": ["ejs:github"],
         }
+        used_cookie = False
         if cookie_file:
             opts["cookiefile"] = str(cookie_file)
-        elif self._config.cookie_file_path.exists():
-            opts["cookiefile"] = str(self._config.cookie_file_path)
+            used_cookie = True
 
         url = f"https://www.youtube.com/watch?v={video_id}"
 
@@ -415,19 +427,47 @@ class YtdlpClient:
         except yt_dlp.DownloadError as e:
             msg = str(e)
             if self._is_auth_error(msg):
-                hint = msg
-                if not self._config.cookie_file_path.exists():
-                    hint += (
-                        "\ncookiesが未設定です。"
-                        "`kirinuki cookie set` で設定してください。"
+                if not used_cookie and self._config.cookie_file_path.exists():
+                    return self._download_section_with_cookie(
+                        opts, url, output_path,
                     )
                 raise AuthenticationRequiredError(
-                    f"認証が必要です。Cookieファイルを設定してください: {hint}"
+                    "認証が必要です。`kirinuki cookie set` で"
+                    f"Cookieを設定してください: {msg}"
                 ) from e
+            # Cookie未使用かつコンフィグにCookieがあれば、
+            # メンバー限定動画の可能性があるのでリトライ
+            if not used_cookie and self._config.cookie_file_path.exists():
+                return self._download_section_with_cookie(
+                    opts, url, output_path,
+                )
             raise VideoDownloadError(
                 f"動画のダウンロードに失敗しました: {msg}"
             ) from e
 
+        return output_path
+
+    def _download_section_with_cookie(
+        self,
+        opts: dict,
+        url: str,
+        output_path: Path,
+    ) -> Path:
+        """Cookie付きでダウンロードをリトライする。
+
+        認証が必要と推定してリトライしているため、ここでも失敗した場合は
+        認証エラー（Cookie期限切れ等）として扱う。
+        """
+        opts["cookiefile"] = str(self._config.cookie_file_path)
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.extract_info(url, download=True)
+        except yt_dlp.DownloadError as e:
+            msg = str(e)
+            raise AuthenticationRequiredError(
+                "認証が必要です。Cookieを更新してください"
+                f" (`kirinuki cookie set`): {msg}"
+            ) from e
         return output_path
 
     def resolve_channel_name(self, channel_url: str) -> tuple[str, str]:
