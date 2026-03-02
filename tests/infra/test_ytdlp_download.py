@@ -88,3 +88,82 @@ class TestDownloadVideo:
 
         with pytest.raises(AuthenticationRequiredError):
             client.download_video("vid1", tmp_path)
+
+
+class TestDownloadSection:
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_download_section_success(
+        self, mock_ydl_cls: MagicMock, client: YtdlpClient, tmp_path: Path
+    ) -> None:
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {"id": "vid1"}
+
+        output_path = tmp_path / "clip.mp4"
+        # Simulate file creation by yt-dlp
+        output_path.touch()
+
+        result = client.download_section("vid1", 60.0, 120.0, output_path)
+        assert result == output_path
+
+        # Verify download_ranges was set in options
+        call_args = mock_ydl_cls.call_args[0][0]
+        assert "download_ranges" in call_args
+        assert call_args.get("format_sort") == ["proto:https"]
+
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_download_section_with_cookie(
+        self, mock_ydl_cls: MagicMock, tmp_path: Path
+    ) -> None:
+        cookie_file = tmp_path / "cookies.txt"
+        cookie_file.write_text("# Netscape cookie file")
+        config = AppConfig(db_path=tmp_path / "data.db")
+        c = YtdlpClient(config)
+
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {"id": "vid1"}
+
+        output_path = tmp_path / "clip.mp4"
+        output_path.touch()
+
+        c.download_section("vid1", 60.0, 120.0, output_path, cookie_file=cookie_file)
+
+        call_args = mock_ydl_cls.call_args[0][0]
+        assert call_args.get("cookiefile") == str(cookie_file)
+
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_download_section_failure(
+        self, mock_ydl_cls: MagicMock, client: YtdlpClient, tmp_path: Path
+    ) -> None:
+        import yt_dlp
+
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.side_effect = yt_dlp.DownloadError("section download failed")
+
+        output_path = tmp_path / "clip.mp4"
+
+        with pytest.raises(VideoDownloadError):
+            client.download_section("vid1", 60.0, 120.0, output_path)
+
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_download_section_auth_error(
+        self, mock_ydl_cls: MagicMock, client: YtdlpClient, tmp_path: Path
+    ) -> None:
+        import yt_dlp
+
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.side_effect = yt_dlp.DownloadError(
+            "Sign in to confirm you're not a bot"
+        )
+
+        output_path = tmp_path / "clip.mp4"
+
+        with pytest.raises(AuthenticationRequiredError):
+            client.download_section("vid1", 60.0, 120.0, output_path)

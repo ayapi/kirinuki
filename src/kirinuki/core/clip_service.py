@@ -1,86 +1,78 @@
 """切り抜きオーケストレーションサービス"""
 
-import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol
 
-from kirinuki.models.clip import ClipRequest, ClipResult
-
-
-class FfmpegClient(Protocol):
-    def check_available(self) -> None: ...
-
-    def clip(
-        self,
-        input_path: Path,
-        output_path: Path,
-        start_seconds: float,
-        end_seconds: float,
-    ) -> None: ...
+from kirinuki.core.clip_utils import build_numbered_filename
+from kirinuki.models.clip import (
+    ClipOutcome,
+    MultiClipRequest,
+    MultiClipResult,
+)
 
 
 class ClipService:
-    """動画DL→ffmpeg切り出し→一時ファイルクリーンアップのオーケストレーション"""
+    """複数範囲の切り出しオーケストレーション"""
 
     def __init__(
         self,
         ytdlp_client: object,
-        ffmpeg_client: FfmpegClient,
     ) -> None:
         self._ytdlp = ytdlp_client
-        self._ffmpeg = ffmpeg_client
 
     def execute(
         self,
-        request: ClipRequest,
+        request: MultiClipRequest,
         on_progress: Callable[[str], None] | None = None,
-    ) -> ClipResult:
-        """切り抜きリクエストを実行し、結果を返す。
+    ) -> MultiClipResult:
+        """複数範囲の切り抜きリクエストを実行し、結果を返す。
 
         処理フロー:
-        1. ffmpeg存在確認
-        2. 出力先親ディレクトリ存在確認
-        3. 一時ディレクトリに動画DL
-        4. ffmpegで指定区間切り出し
-        5. ClipResult返却
+        1. 出力先ディレクトリを作成（存在しない場合）
+        2. 各TimeRangeに対してdownload_sectionを呼び出し
+        3. 個別失敗はエラー記録して続行
+        4. MultiClipResult返却
         """
-        self._ffmpeg.check_available()
-
-        output_path = request.output_path
-        assert output_path is not None
-
-        if not output_path.parent.exists():
-            raise FileNotFoundError(
-                f"出力先ディレクトリが存在しません: {output_path.parent}"
-            )
+        output_dir = Path(request.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
 
         def _notify(msg: str) -> None:
             if on_progress:
                 on_progress(msg)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            _notify("ダウンロード中...")
-            downloaded_path: Path = self._ytdlp.download_video(
-                request.url,
-                Path(tmpdir),
-                cookie_file=request.cookie_file,
-            )
+        total = len(request.ranges)
+        outcomes: list[ClipOutcome] = []
 
-            _notify("切り出し中...")
-            assert request.start_seconds is not None
-            assert request.end_seconds is not None
-            self._ffmpeg.clip(
-                downloaded_path,
-                output_path,
-                request.start_seconds,
-                request.end_seconds,
-            )
+        for i, time_range in enumerate(request.ranges, 1):
+            filename = build_numbered_filename(request.filename, i, total)
+            output_path = output_dir / filename
 
-        return ClipResult(
-            output_path=output_path,
-            video_id=request.url,
-            start_seconds=request.start_seconds,
-            end_seconds=request.end_seconds,
-            duration_seconds=request.end_seconds - request.start_seconds,
+            _notify(f"[{i}/{total}] 切り抜き中...")
+
+            try:
+                result_path = self._ytdlp.download_section(
+                    request.video_id,
+                    time_range.start_seconds,
+                    time_range.end_seconds,
+                    output_path=output_path,
+                    cookie_file=request.cookie_file,
+                )
+                outcomes.append(
+                    ClipOutcome(
+                        range=time_range,
+                        output_path=result_path,
+                    )
+                )
+            except Exception as e:
+                outcomes.append(
+                    ClipOutcome(
+                        range=time_range,
+                        output_path=None,
+                        error=str(e),
+                    )
+                )
+
+        return MultiClipResult(
+            video_id=request.video_id,
+            outcomes=outcomes,
         )

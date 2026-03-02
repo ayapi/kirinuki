@@ -3,13 +3,16 @@
 import pytest
 
 from kirinuki.core.clip_utils import (
+    build_numbered_filename,
     build_youtube_url,
     extract_video_id,
     format_default_filename,
+    parse_time_ranges,
     parse_time_str,
     seconds_to_ffmpeg_time,
 )
 from kirinuki.core.errors import InvalidURLError
+from kirinuki.models.clip import TimeRange
 
 
 class TestExtractVideoId:
@@ -117,3 +120,76 @@ class TestFormatDefaultFilename:
     def test_mkv_format(self) -> None:
         name = format_default_filename("xyz", 0.0, 120.5, "mkv")
         assert name == "xyz_0.0-120.5.mkv"
+
+
+class TestParseTimeRanges:
+    def test_single_range_mmss(self) -> None:
+        ranges = parse_time_ranges("18:03-19:31")
+        assert len(ranges) == 1
+        assert ranges[0].start_seconds == 18 * 60 + 3
+        assert ranges[0].end_seconds == 19 * 60 + 31
+
+    def test_multiple_ranges(self) -> None:
+        ranges = parse_time_ranges("18:03-19:31,21:31-23:20")
+        assert len(ranges) == 2
+        assert ranges[0].start_seconds == 18 * 60 + 3
+        assert ranges[1].start_seconds == 21 * 60 + 31
+
+    def test_hhmmss_format(self) -> None:
+        ranges = parse_time_ranges("1:00:00-1:30:00")
+        assert len(ranges) == 1
+        assert ranges[0].start_seconds == 3600.0
+        assert ranges[0].end_seconds == 5400.0
+
+    def test_seconds_format(self) -> None:
+        ranges = parse_time_ranges("60-120")
+        assert len(ranges) == 1
+        assert ranges[0].start_seconds == 60.0
+        assert ranges[0].end_seconds == 120.0
+
+    def test_three_ranges(self) -> None:
+        ranges = parse_time_ranges("1:00-2:00,3:00-4:00,5:00-6:00")
+        assert len(ranges) == 3
+
+    def test_empty_string_raises(self) -> None:
+        with pytest.raises(ValueError):
+            parse_time_ranges("")
+
+    def test_no_hyphen_raises(self) -> None:
+        with pytest.raises(ValueError):
+            parse_time_ranges("18:03")
+
+    def test_invalid_time_raises(self) -> None:
+        with pytest.raises(ValueError):
+            parse_time_ranges("abc-def")
+
+    def test_start_greater_than_end_raises(self) -> None:
+        with pytest.raises(ValueError):
+            parse_time_ranges("20:00-10:00")
+
+    def test_whitespace_trimmed(self) -> None:
+        ranges = parse_time_ranges(" 1:00 - 2:00 , 3:00 - 4:00 ")
+        assert len(ranges) == 2
+
+
+class TestBuildNumberedFilename:
+    def test_single_no_numbering(self) -> None:
+        assert build_numbered_filename("video.mp4", 1, 1) == "video.mp4"
+
+    def test_multiple_first(self) -> None:
+        assert build_numbered_filename("video.mp4", 1, 3) == "video1.mp4"
+
+    def test_multiple_second(self) -> None:
+        assert build_numbered_filename("video.mp4", 2, 3) == "video2.mp4"
+
+    def test_multiple_third(self) -> None:
+        assert build_numbered_filename("video.mp4", 3, 3) == "video3.mp4"
+
+    def test_japanese_filename(self) -> None:
+        assert build_numbered_filename("動画.mp4", 2, 5) == "動画2.mp4"
+
+    def test_mkv_extension(self) -> None:
+        assert build_numbered_filename("clip.mkv", 1, 2) == "clip1.mkv"
+
+    def test_no_extension(self) -> None:
+        assert build_numbered_filename("video", 1, 2) == "video1"

@@ -373,6 +373,63 @@ class YtdlpClient:
         filepath = info["requested_downloads"][0]["filepath"]
         return Path(filepath)
 
+    def download_section(
+        self,
+        video_id: str,
+        start_seconds: float,
+        end_seconds: float,
+        output_path: Path,
+        cookie_file: Path | None = None,
+    ) -> Path:
+        """指定時間範囲のフラグメントのみをダウンロードし、出力先に保存する。
+
+        yt-dlp の download_ranges API を使用。DASH形式のフラグメントレベルで
+        部分ダウンロードを行い、ffmpegによるトリムを一体処理する。
+
+        Raises:
+            VideoDownloadError: ダウンロード失敗
+            AuthenticationRequiredError: 認証が必要
+        """
+        from yt_dlp.utils import download_range_func
+
+        opts: dict = {
+            "quiet": True,
+            "no_warnings": True,
+            "format_sort": ["proto:https"],
+            "download_ranges": download_range_func(
+                None, [(start_seconds, end_seconds)]
+            ),
+            "outtmpl": str(output_path),
+            "remote_components": ["ejs:github"],
+        }
+        if cookie_file:
+            opts["cookiefile"] = str(cookie_file)
+        elif self._config.cookie_file_path.exists():
+            opts["cookiefile"] = str(self._config.cookie_file_path)
+
+        url = f"https://www.youtube.com/watch?v={video_id}"
+
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.extract_info(url, download=True)
+        except yt_dlp.DownloadError as e:
+            msg = str(e)
+            if self._is_auth_error(msg):
+                hint = msg
+                if not self._config.cookie_file_path.exists():
+                    hint += (
+                        "\ncookiesが未設定です。"
+                        "`kirinuki cookie set` で設定してください。"
+                    )
+                raise AuthenticationRequiredError(
+                    f"認証が必要です。Cookieファイルを設定してください: {hint}"
+                ) from e
+            raise VideoDownloadError(
+                f"動画のダウンロードに失敗しました: {msg}"
+            ) from e
+
+        return output_path
+
     def resolve_channel_name(self, channel_url: str) -> tuple[str, str]:
         """チャンネルURLからチャンネルIDと名前を取得する"""
         opts = self._base_opts()

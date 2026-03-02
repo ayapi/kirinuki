@@ -10,7 +10,8 @@ YouTube Live 配信アーカイブの字幕を蓄積し、LLM で話題区間を
 - LLM による話題セグメンテーション（どこで何を話していたかを自動抽出）
 - 複数動画を横断したセマンティック検索
 - 切り抜き候補の自動推薦
-- 指定区間のクリッピング（オンデマンドDL → 切り出し → 元動画即削除）
+- 指定区間のクリッピング（yt-dlp の部分DLで必要フラグメントのみ取得）
+- 複数箇所の一括切り抜き（カンマ区切りで時間範囲を指定）
 - メンバー限定配信対応（Cookie 認証）
 
 ## 必要なもの
@@ -60,6 +61,7 @@ KIRINUKI_OPENAI_API_KEY="sk-..."
 
 # 任意
 KIRINUKI_DB_PATH="/path/to/data.db"               # デフォルト: ~/.kirinuki/data.db
+KIRINUKI_OUTPUT_DIR="/path/to/output"              # デフォルト: ~/.kirinuki/output
 KIRINUKI_LLM_MODEL="claude-haiku-4-5-20251001"    # デフォルト
 KIRINUKI_EMBEDDING_MODEL="text-embedding-3-small"  # デフォルト
 ```
@@ -154,6 +156,30 @@ kirinuki cookie status
 # Cookie を削除
 kirinuki cookie delete
 ```
+
+### 切り抜き
+
+```bash
+# 単一区間の切り抜き
+kirinuki clip <動画IDまたはURL> <出力ファイル名> <時間範囲>
+kirinuki clip dQw4w9WgXcQ output.mp4 18:03-19:31
+
+# 複数区間を一括切り抜き（カンマ区切り）
+kirinuki clip dQw4w9WgXcQ highlight.mp4 18:03-19:31,21:31-23:20,45:00-46:30
+# → highlight1.mp4, highlight2.mp4, highlight3.mp4 が生成される
+
+# 出力先ディレクトリを指定（デフォルト: ~/.kirinuki/output）
+kirinuki clip dQw4w9WgXcQ output.mp4 1:00:00-1:05:00 --output-dir ./clips
+
+# YouTube URLも使用可能
+kirinuki clip https://www.youtube.com/watch?v=dQw4w9WgXcQ clip.mp4 5:00-10:00
+```
+
+yt-dlp の部分ダウンロード機能を利用し、指定範囲のフラグメントのみを取得します。動画全体をダウンロードしないため、長時間配信からの切り抜きでも高速です。
+
+| オプション | デフォルト | 説明 |
+|---|---|---|
+| `--output-dir` | `~/.kirinuki/output` | 出力先ディレクトリ（設定ファイルでも指定可能） |
 
 ### 切り抜き候補の推薦
 

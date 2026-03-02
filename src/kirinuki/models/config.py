@@ -24,3 +24,4 @@ class AppConfig(BaseSettings):
     llm_model: str = "claude-haiku-4-5-20251001"
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
+    output_dir: Path = Field(default_factory=lambda: KIRINUKI_DIR / "output")

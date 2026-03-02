@@ -100,3 +100,74 @@ def format_default_filename(
 ) -> str:
     """デフォルトの出力ファイル名を生成する。"""
     return f"{video_id}_{start_seconds}-{end_seconds}.{output_format}"
+
+
+def parse_time_ranges(time_ranges_str: str) -> list:
+    """カンマ区切りの時間範囲文字列をパースする。
+
+    Args:
+        time_ranges_str: "18:03-19:31,21:31-23:20" 形式の文字列
+
+    Returns:
+        TimeRange のリスト
+
+    Raises:
+        ValueError: フォーマット不正の場合
+    """
+    from kirinuki.models.clip import TimeRange
+
+    time_ranges_str = time_ranges_str.strip()
+    if not time_ranges_str:
+        raise ValueError("時間範囲が空です")
+
+    ranges: list[TimeRange] = []
+    for part in time_ranges_str.split(","):
+        part = part.strip()
+        if "-" not in part:
+            raise ValueError(f"時間範囲のフォーマットが不正です（ハイフンがありません）: {part}")
+
+        # 最後のハイフンで分割（時刻にハイフンは含まれない前提）
+        # "1:00:00-1:30:00" → start="1:00:00", end="1:30:00"
+        idx = part.rfind("-")
+        start_str = part[:idx].strip()
+        end_str = part[idx + 1 :].strip()
+
+        if not start_str or not end_str:
+            raise ValueError(f"時間範囲のフォーマットが不正です: {part}")
+
+        try:
+            start_seconds = parse_time_str(start_str)
+            end_seconds = parse_time_str(end_str)
+        except ValueError as e:
+            raise ValueError(f"時刻のパースに失敗しました: {part} ({e})") from e
+
+        try:
+            ranges.append(
+                TimeRange(start_seconds=start_seconds, end_seconds=end_seconds)
+            )
+        except Exception as e:
+            raise ValueError(
+                f"時間範囲が不正です: {part} ({e})"
+            ) from e
+
+    return ranges
+
+
+def build_numbered_filename(filename: str, index: int, total: int) -> str:
+    """連番付きファイル名を生成する。
+
+    Args:
+        filename: ベースファイル名（例: "動画.mp4"）
+        index: 1始まりのインデックス
+        total: 総数（1の場合は連番なし）
+
+    Returns:
+        "動画1.mp4" or "動画.mp4"（total=1の場合）
+    """
+    if total == 1:
+        return filename
+
+    from pathlib import PurePosixPath
+
+    p = PurePosixPath(filename)
+    return f"{p.stem}{index}{p.suffix}"

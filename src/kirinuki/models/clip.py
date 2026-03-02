@@ -42,3 +42,54 @@ class ClipResult(BaseModel):
     start_seconds: float
     end_seconds: float
     duration_seconds: float
+
+
+# --- Multi-clip models ---
+
+
+class TimeRange(BaseModel):
+    start_seconds: float
+    end_seconds: float
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "TimeRange":
+        if self.start_seconds < 0:
+            raise ValueError("start_secondsは0以上である必要があります")
+        if self.start_seconds >= self.end_seconds:
+            raise ValueError("start_secondsはend_secondsより小さい必要があります")
+        return self
+
+
+class MultiClipRequest(BaseModel):
+    video_id: str
+    filename: str
+    output_dir: Path
+    ranges: list[TimeRange]
+    cookie_file: Path | None = None
+
+    @model_validator(mode="after")
+    def validate_ranges(self) -> "MultiClipRequest":
+        if len(self.ranges) < 1:
+            raise ValueError("rangesは1つ以上指定してください")
+        return self
+
+
+class ClipOutcome(BaseModel):
+    """個別の切り出し結果"""
+
+    range: TimeRange
+    output_path: Path | None
+    error: str | None = None
+
+
+class MultiClipResult(BaseModel):
+    video_id: str
+    outcomes: list[ClipOutcome]
+
+    @property
+    def success_count(self) -> int:
+        return sum(1 for o in self.outcomes if o.output_path is not None)
+
+    @property
+    def failure_count(self) -> int:
+        return sum(1 for o in self.outcomes if o.output_path is None)
