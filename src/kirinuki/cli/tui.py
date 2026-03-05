@@ -147,16 +147,27 @@ def execute_clips(
         filename = generate_clip_filename(
             candidate.video_id, candidate.start_ms, candidate.summary
         )
+
+        start_sec = candidate.start_ms / 1000
+        end_sec = candidate.end_ms / 1000
+        try:
+            time_range = TimeRange(
+                start_seconds=start_sec,
+                end_seconds=end_sec,
+            )
+        except Exception:
+            _notify(
+                f"[{i}/{total}] スキップ（時間範囲が不正: "
+                f"start_ms={candidate.start_ms}, end_ms={candidate.end_ms}）: "
+                f"{candidate.summary[:40]}"
+            )
+            continue
+
         request = MultiClipRequest(
             video_id=candidate.video_id,
             filename=filename,
             output_dir=output_dir,
-            ranges=[
-                TimeRange(
-                    start_seconds=candidate.start_ms / 1000,
-                    end_seconds=candidate.end_ms / 1000,
-                )
-            ],
+            ranges=[time_range],
         )
 
         _notify(f"[{i}/{total}] 切り抜き中: {candidate.summary[:40]}...")
@@ -170,7 +181,7 @@ def execute_clips(
         except Exception as e:
             outcomes.append(
                 ClipOutcome(
-                    range=request.ranges[0],
+                    range=time_range,
                     output_path=None,
                     error=str(e),
                 )

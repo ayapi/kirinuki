@@ -180,7 +180,8 @@ class SegmentationService:
             summary=snapped[-1].summary,
         )
 
-        return snapped
+        # スナップにより start_ms >= end_ms になったゼロ秒間セグメントを除外
+        return [s for s in snapped if s.start_ms < s.end_ms]
 
     def _resplit_oversized(
         self,
@@ -224,6 +225,9 @@ class SegmentationService:
     def _build_subtitle_text(self, entries: list[SubtitleEntry]) -> str:
         lines = []
         for entry in entries:
+            # YouTube自動字幕のローリング表示フラッシュ行(dur<=10ms)を除外
+            if entry.duration_ms <= 10:
+                continue
             total_seconds = entry.start_ms // 1000
             minutes = total_seconds // 60
             seconds = total_seconds % 60
