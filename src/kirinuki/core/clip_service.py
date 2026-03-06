@@ -1,5 +1,7 @@
 """切り抜きオーケストレーションサービス"""
 
+import logging
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -10,15 +12,22 @@ from kirinuki.models.clip import (
     MultiClipResult,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class ClipService:
-    """複数範囲の切り出しオーケストレーション"""
+    """複数範囲の切り出しオーケストレーション
+
+    動画を1回だけダウンロードし、各区間をffmpegで切り出す。
+    """
 
     def __init__(
         self,
         ytdlp_client: object,
+        ffmpeg_client: object,
     ) -> None:
         self._ytdlp = ytdlp_client
+        self._ffmpeg = ffmpeg_client
 
     def execute(
         self,
@@ -28,10 +37,11 @@ class ClipService:
         """複数範囲の切り抜きリクエストを実行し、結果を返す。
 
         処理フロー:
-        1. 出力先ディレクトリを作成（存在しない場合）
-        2. 各TimeRangeに対してdownload_sectionを呼び出し
+        1. 動画を一時ディレクトリに1回だけダウンロード
+        2. 各TimeRangeに対してffmpegで区間切り出し
         3. 個別失敗はエラー記録して続行
-        4. MultiClipResult返却
+        4. 一時ファイルをクリーンアップ
+        5. MultiClipResult返却
         """
         output_dir = Path(request.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -40,37 +50,46 @@ class ClipService:
             if on_progress:
                 on_progress(msg)
 
-        total = len(request.ranges)
-        outcomes: list[ClipOutcome] = []
+        with tempfile.TemporaryDirectory() as td:
+            temp_dir = Path(td)
 
-        for i, time_range in enumerate(request.ranges, 1):
-            filename = build_numbered_filename(request.filename, i, total)
-            output_path = output_dir / filename
+            _notify("動画をダウンロード中...")
+            downloaded_path = self._ytdlp.download_video(
+                request.video_id,
+                temp_dir,
+                cookie_file=request.cookie_file,
+            )
 
-            _notify(f"[{i}/{total}] 切り抜き中...")
+            total = len(request.ranges)
+            outcomes: list[ClipOutcome] = []
 
-            try:
-                result_path = self._ytdlp.download_section(
-                    request.video_id,
-                    time_range.start_seconds,
-                    time_range.end_seconds,
-                    output_path=output_path,
-                    cookie_file=request.cookie_file,
-                )
-                outcomes.append(
-                    ClipOutcome(
-                        range=time_range,
-                        output_path=result_path,
+            for i, time_range in enumerate(request.ranges, 1):
+                filename = build_numbered_filename(request.filename, i, total)
+                output_path = output_dir / filename
+
+                _notify(f"[{i}/{total}] 切り抜き中...")
+
+                try:
+                    self._ffmpeg.clip(
+                        downloaded_path,
+                        output_path,
+                        time_range.start_seconds,
+                        time_range.end_seconds,
                     )
-                )
-            except Exception as e:
-                outcomes.append(
-                    ClipOutcome(
-                        range=time_range,
-                        output_path=None,
-                        error=str(e),
+                    outcomes.append(
+                        ClipOutcome(
+                            range=time_range,
+                            output_path=output_path,
+                        )
                     )
-                )
+                except Exception as e:
+                    outcomes.append(
+                        ClipOutcome(
+                            range=time_range,
+                            output_path=None,
+                            error=str(e),
+                        )
+                    )
 
         return MultiClipResult(
             video_id=request.video_id,

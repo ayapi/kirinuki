@@ -193,7 +193,10 @@ def execute_clips(
 def create_clip_service(config: object) -> object:
     """AppConfigからClipServiceを生成する共通ヘルパー。"""
     from kirinuki.core.clip_service import ClipService
+    from kirinuki.infra.ffmpeg import FfmpegClientImpl
     from kirinuki.infra.ytdlp_client import YtdlpClient
 
     ytdlp = YtdlpClient(config)
-    return ClipService(ytdlp_client=ytdlp)
+    ffmpeg = FfmpegClientImpl()
+    ffmpeg.check_available()
+    return ClipService(ytdlp_client=ytdlp, ffmpeg_client=ffmpeg)

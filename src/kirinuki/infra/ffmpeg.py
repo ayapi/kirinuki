@@ -56,8 +56,12 @@ class FfmpegClientImpl:
             str(input_path),
             "-t",
             duration_time,
-            "-c",
+            "-c:v",
             "copy",
+            "-c:a",
+            "aac",
+            "-avoid_negative_ts",
+            "make_zero",
             str(output_path),
         ]
 
