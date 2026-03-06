@@ -39,8 +39,9 @@ class TestClip:
         cmd = mock_run.call_args[0][0]
         assert "ffmpeg" in cmd
         assert "-ss" in cmd
-        assert "-c" in cmd
-        assert "copy" in cmd
+        assert "-c:v" in cmd
+        assert "-c:a" in cmd
+        assert "aac" in cmd
 
     @patch("kirinuki.infra.ffmpeg.subprocess.run")
     def test_clip_failure(self, mock_run: MagicMock, tmp_path: Path) -> None:

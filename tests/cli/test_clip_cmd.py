@@ -40,6 +40,7 @@ class TestClipCommand:
         with (
             patch("kirinuki.cli.clip.ClipService") as MockService,
             patch("kirinuki.cli.clip.YtdlpClient"),
+            patch("kirinuki.cli.clip.FfmpegClientImpl"),
             patch("kirinuki.cli.clip.AppConfig") as MockConfig,
         ):
             MockConfig.return_value.output_dir = tmp_path
@@ -73,6 +74,7 @@ class TestClipCommand:
         with (
             patch("kirinuki.cli.clip.ClipService") as MockService,
             patch("kirinuki.cli.clip.YtdlpClient"),
+            patch("kirinuki.cli.clip.FfmpegClientImpl"),
             patch("kirinuki.cli.clip.AppConfig") as MockConfig,
         ):
             MockConfig.return_value.output_dir = tmp_path
@@ -101,6 +103,7 @@ class TestClipCommand:
         with (
             patch("kirinuki.cli.clip.ClipService") as MockService,
             patch("kirinuki.cli.clip.YtdlpClient"),
+            patch("kirinuki.cli.clip.FfmpegClientImpl"),
             patch("kirinuki.cli.clip.AppConfig") as MockConfig,
         ):
             MockConfig.return_value.output_dir = tmp_path
@@ -176,6 +179,7 @@ class TestClipCommand:
         with (
             patch("kirinuki.cli.clip.ClipService") as MockService,
             patch("kirinuki.cli.clip.YtdlpClient"),
+            patch("kirinuki.cli.clip.FfmpegClientImpl"),
             patch("kirinuki.cli.clip.AppConfig") as MockConfig,
         ):
             MockConfig.return_value.output_dir = tmp_path / "default"
@@ -215,6 +219,7 @@ class TestClipCommand:
         with (
             patch("kirinuki.cli.clip.ClipService") as MockService,
             patch("kirinuki.cli.clip.YtdlpClient"),
+            patch("kirinuki.cli.clip.FfmpegClientImpl"),
             patch("kirinuki.cli.clip.AppConfig") as MockConfig,
         ):
             MockConfig.return_value.output_dir = tmp_path
@@ -234,6 +239,7 @@ class TestClipCommand:
         with (
             patch("kirinuki.cli.clip.ClipService") as MockService,
             patch("kirinuki.cli.clip.YtdlpClient"),
+            patch("kirinuki.cli.clip.FfmpegClientImpl"),
             patch("kirinuki.cli.clip.AppConfig") as MockConfig,
         ):
             MockConfig.return_value.output_dir = tmp_path
@@ -275,6 +281,7 @@ class TestClipCommand:
         with (
             patch("kirinuki.cli.clip.ClipService") as MockService,
             patch("kirinuki.cli.clip.YtdlpClient"),
+            patch("kirinuki.cli.clip.FfmpegClientImpl"),
             patch("kirinuki.cli.clip.AppConfig") as MockConfig,
         ):
             MockConfig.return_value.output_dir = tmp_path
@@ -311,6 +318,7 @@ class TestClipCommand:
         with (
             patch("kirinuki.cli.clip.ClipService") as MockService,
             patch("kirinuki.cli.clip.YtdlpClient"),
+            patch("kirinuki.cli.clip.FfmpegClientImpl"),
             patch("kirinuki.cli.clip.AppConfig") as MockConfig,
         ):
             MockConfig.return_value.output_dir = tmp_path

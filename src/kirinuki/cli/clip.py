@@ -14,6 +14,7 @@ from kirinuki.core.errors import (
     VideoDownloadError,
 )
 from kirinuki.core.formatter import format_time_range
+from kirinuki.infra.ffmpeg import FfmpegClientImpl
 from kirinuki.infra.ytdlp_client import YtdlpClient
 from kirinuki.models.clip import MultiClipRequest
 from kirinuki.models.config import AppConfig
@@ -65,7 +66,9 @@ def clip(
         raise SystemExit(1) from e
 
     ytdlp = YtdlpClient(config)
-    service = ClipService(ytdlp_client=ytdlp)
+    ffmpeg = FfmpegClientImpl()
+    ffmpeg.check_available()
+    service = ClipService(ytdlp_client=ytdlp, ffmpeg_client=ffmpeg)
 
     try:
         result = service.execute(request, on_progress=click.echo)
