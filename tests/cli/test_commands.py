@@ -255,7 +255,7 @@ class TestSearch:
     @patch("kirinuki.cli.main.create_app_context")
     def test_search_results(self, mock_ctx, runner):
         mock_context = MagicMock()
-        mock_context.search_service.search.return_value = [
+        mock_context.search_service.search.return_value = ([
             SearchResult(
                 video_title="Test Video",
                 channel_name="Test Channel",
@@ -265,7 +265,7 @@ class TestSearch:
                 youtube_url="https://www.youtube.com/watch?v=abc123&t=60",
                 score=0.95,
             ),
-        ]
+        ], [])
         mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -277,7 +277,7 @@ class TestSearch:
     @patch("kirinuki.cli.main.create_app_context")
     def test_search_no_results(self, mock_ctx, runner):
         mock_context = MagicMock()
-        mock_context.search_service.search.return_value = []
+        mock_context.search_service.search.return_value = ([], [])
         mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -290,7 +290,7 @@ class TestSearchMatchReason:
     @patch("kirinuki.cli.main.create_app_context")
     def test_keyword_match_shows_snippet(self, mock_ctx, runner):
         mock_context = MagicMock()
-        mock_context.search_service.search.return_value = [
+        mock_context.search_service.search.return_value = ([
             SearchResult(
                 video_title="Test Video",
                 channel_name="Test Channel",
@@ -302,7 +302,7 @@ class TestSearchMatchReason:
                 match_type=MatchType.KEYWORD,
                 snippet="マッチした字幕テキスト",
             ),
-        ]
+        ], [])
         mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -314,7 +314,7 @@ class TestSearchMatchReason:
     @patch("kirinuki.cli.main.create_app_context")
     def test_semantic_match_shows_similarity(self, mock_ctx, runner):
         mock_context = MagicMock()
-        mock_context.search_service.search.return_value = [
+        mock_context.search_service.search.return_value = ([
             SearchResult(
                 video_title="Test Video",
                 channel_name="Test Channel",
@@ -326,7 +326,7 @@ class TestSearchMatchReason:
                 match_type=MatchType.SEMANTIC,
                 similarity=0.85,
             ),
-        ]
+        ], [])
         mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -338,7 +338,7 @@ class TestSearchMatchReason:
     @patch("kirinuki.cli.main.create_app_context")
     def test_hybrid_match_shows_both(self, mock_ctx, runner):
         mock_context = MagicMock()
-        mock_context.search_service.search.return_value = [
+        mock_context.search_service.search.return_value = ([
             SearchResult(
                 video_title="Test Video",
                 channel_name="Test Channel",
@@ -351,7 +351,7 @@ class TestSearchMatchReason:
                 snippet="マッチした字幕",
                 similarity=0.9,
             ),
-        ]
+        ], [])
         mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -364,7 +364,7 @@ class TestSearchMatchReason:
     @patch("kirinuki.cli.main.create_app_context")
     def test_no_match_type_backward_compatible(self, mock_ctx, runner):
         mock_context = MagicMock()
-        mock_context.search_service.search.return_value = [
+        mock_context.search_service.search.return_value = ([
             SearchResult(
                 video_title="Test Video",
                 channel_name="Test Channel",
@@ -374,7 +374,7 @@ class TestSearchMatchReason:
                 youtube_url="https://www.youtube.com/watch?v=abc123&t=60",
                 score=0.95,
             ),
-        ]
+        ], [])
         mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -389,7 +389,7 @@ class TestSearchMatchReason:
     def test_long_snippet_truncated(self, mock_ctx, runner):
         long_snippet = "あ" * 100
         mock_context = MagicMock()
-        mock_context.search_service.search.return_value = [
+        mock_context.search_service.search.return_value = ([
             SearchResult(
                 video_title="Test Video",
                 channel_name="Test Channel",
@@ -401,7 +401,7 @@ class TestSearchMatchReason:
                 match_type=MatchType.KEYWORD,
                 snippet=long_snippet,
             ),
-        ]
+        ], [])
         mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -410,6 +410,42 @@ class TestSearchMatchReason:
         # 80文字 + … で切り詰められている
         assert "あ" * 80 + "…" in result.output
         assert "あ" * 100 not in result.output
+
+
+class TestSearchVideoIdOption:
+    @patch("kirinuki.cli.main.create_app_context")
+    def test_video_id_passed_to_service(self, mock_ctx, runner):
+        mock_context = MagicMock()
+        mock_context.search_service.search.return_value = ([], [])
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        runner.invoke(cli, ["search", "テスト", "--video-id", "vid1", "--video-id", "vid2"])
+        mock_context.search_service.search.assert_called_once_with(
+            "テスト", limit=10, video_ids=["vid1", "vid2"]
+        )
+
+    @patch("kirinuki.cli.main.create_app_context")
+    def test_no_video_id_passes_none(self, mock_ctx, runner):
+        mock_context = MagicMock()
+        mock_context.search_service.search.return_value = ([], [])
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        runner.invoke(cli, ["search", "テスト"])
+        mock_context.search_service.search.assert_called_once_with(
+            "テスト", limit=10, video_ids=None
+        )
+
+    @patch("kirinuki.cli.main.create_app_context")
+    def test_warnings_displayed(self, mock_ctx, runner):
+        mock_context = MagicMock()
+        mock_context.search_service.search.return_value = ([], ["動画ID 'vid_x' はデータベースに存在しません"])
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = runner.invoke(cli, ["search", "テスト", "--video-id", "vid_x"])
+        assert result.exit_code == 0
 
 
 class TestSegments:

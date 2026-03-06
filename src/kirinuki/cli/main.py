@@ -190,11 +190,15 @@ def sync(max_segment_ms: int) -> None:
 @cli.command()
 @click.argument("query")
 @click.option("--limit", "-n", default=10, help="検索結果の最大件数")
+@click.option("--video-id", multiple=True, default=(), help="絞り込む動画ID（複数指定可）")
 @click.option("--tui", is_flag=True, default=False, help="TUIモードで結果を表示し、切り抜きを実行")
-def search(query: str, limit: int, tui: bool) -> None:
+def search(query: str, limit: int, video_id: tuple[str, ...], tui: bool) -> None:
     """全動画を横断して検索する"""
     with create_app_context() as ctx:
-        results = ctx.search_service.search(query, limit=limit)
+        video_ids = list(video_id) if video_id else None
+        results, warnings = ctx.search_service.search(query, limit=limit, video_ids=video_ids)
+        for w in warnings:
+            click.echo(f"警告: {w}", err=True)
         if not results:
             click.echo("該当する結果はありませんでした")
             return

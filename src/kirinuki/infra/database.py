@@ -440,7 +440,10 @@ class Database:
             for row in rows
         ]
 
-    def vector_search(self, query_vector: list[float], limit: int = 10) -> list[dict]:
+    def vector_search(
+        self, query_vector: list[float], limit: int = 10, video_ids: list[str] | None = None,
+    ) -> list[dict]:
+        fetch_limit = limit * 5 if video_ids else limit
         rows = self._execute(
             """SELECT sv.segment_id, sv.distance,
                       s.video_id, s.start_ms, s.end_ms, s.summary,
@@ -451,9 +454,9 @@ class Database:
                JOIN channels c ON v.channel_id = c.channel_id
                WHERE embedding MATCH ? AND k = ?
                ORDER BY sv.distance""",
-            (_serialize_f32(query_vector), limit),
+            (_serialize_f32(query_vector), fetch_limit),
         ).fetchall()
-        return [
+        results = [
             {
                 "segment_id": row[0],
                 "distance": row[1],
@@ -466,6 +469,11 @@ class Database:
             }
             for row in rows
         ]
+        if video_ids:
+            video_id_set = set(video_ids)
+            results = [r for r in results if r["video_id"] in video_id_set]
+            results = results[:limit]
+        return results
 
     # --- Unavailable Videos CRUD ---
 
@@ -522,10 +530,37 @@ class Database:
         self._conn.commit()
         return cursor.rowcount
 
-    def fts_search_segments(self, query: str, limit: int = 50) -> list[dict]:
-        """FTS検索結果から関連するセグメントを特定して返す"""
+    def validate_video_ids(self, video_ids: list[str]) -> tuple[list[str], list[str]]:
+        """video_idsの存在確認を行う。
+
+        Returns:
+            tuple of (存在するID, 存在しないID)
+        """
+        if not video_ids:
+            return [], []
+        placeholders = ",".join("?" for _ in video_ids)
         rows = self._execute(
-            """SELECT s.id, s.video_id, s.start_ms, s.end_ms, s.summary,
+            f"SELECT video_id FROM videos WHERE video_id IN ({placeholders})",
+            tuple(video_ids),
+        ).fetchall()
+        existing_set = {row[0] for row in rows}
+        existing = [vid for vid in video_ids if vid in existing_set]
+        missing = [vid for vid in video_ids if vid not in existing_set]
+        return existing, missing
+
+    def fts_search_segments(
+        self, query: str, limit: int = 50, video_ids: list[str] | None = None,
+    ) -> list[dict]:
+        """FTS検索結果から関連するセグメントを特定して返す"""
+        params: list = [query]
+        video_filter = ""
+        if video_ids:
+            placeholders = ",".join("?" for _ in video_ids)
+            video_filter = f" AND s.video_id IN ({placeholders})"
+            params.extend(video_ids)
+        params.append(limit)
+        rows = self._execute(
+            f"""SELECT s.id, s.video_id, s.start_ms, s.end_ms, s.summary,
                       v.title, c.name as channel_name,
                       GROUP_CONCAT(f.text, '…') as snippet
                FROM subtitle_fts f
@@ -534,11 +569,11 @@ class Database:
                    AND CAST(f.start_ms AS INTEGER) < s.end_ms
                JOIN videos v ON s.video_id = v.video_id
                JOIN channels c ON v.channel_id = c.channel_id
-               WHERE subtitle_fts MATCH ?
+               WHERE subtitle_fts MATCH ?{video_filter}
                GROUP BY s.id, s.video_id, s.start_ms, s.end_ms, s.summary,
                         v.title, c.name
                LIMIT ?""",
-            (query, limit),
+            tuple(params),
         ).fetchall()
         return [
             {

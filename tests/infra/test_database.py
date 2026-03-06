@@ -505,6 +505,47 @@ class TestFtsSearchSegmentsSnippet:
         assert "…" in snippet  # 区切り文字で連結されている
 
 
+class TestFtsSearchSegmentsVideoIdFilter:
+    @pytest.fixture
+    def db_with_multi_videos(self, db: Database):
+        """複数動画のテストデータ"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
+        db.save_video("vid2", "UC1", "Video 2", None, 7200, "ja", False)
+        db.save_subtitle_lines("vid1", [
+            SubtitleEntry(start_ms=0, duration_ms=5000, text="マインクラフトで遊びます"),
+        ])
+        db.save_subtitle_lines("vid2", [
+            SubtitleEntry(start_ms=0, duration_ms=5000, text="マインクラフトの世界へ"),
+        ])
+        db.save_segments_with_vectors("vid1", [
+            {"start_ms": 0, "end_ms": 60000, "summary": "ゲーム紹介1"},
+        ], [[0.1] * 1536])
+        db.save_segments_with_vectors("vid2", [
+            {"start_ms": 0, "end_ms": 60000, "summary": "ゲーム紹介2"},
+        ], [[0.2] * 1536])
+        return db
+
+    def test_filter_by_single_video_id(self, db_with_multi_videos: Database) -> None:
+        results = db_with_multi_videos.fts_search_segments("マインクラフト", video_ids=["vid1"])
+        assert len(results) == 1
+        assert results[0]["video_id"] == "vid1"
+
+    def test_filter_by_multiple_video_ids(self, db_with_multi_videos: Database) -> None:
+        results = db_with_multi_videos.fts_search_segments("マインクラフト", video_ids=["vid1", "vid2"])
+        assert len(results) == 2
+        video_ids = {r["video_id"] for r in results}
+        assert video_ids == {"vid1", "vid2"}
+
+    def test_no_filter_returns_all(self, db_with_multi_videos: Database) -> None:
+        results = db_with_multi_videos.fts_search_segments("マインクラフト")
+        assert len(results) == 2
+
+    def test_filter_with_none_returns_all(self, db_with_multi_videos: Database) -> None:
+        results = db_with_multi_videos.fts_search_segments("マインクラフト", video_ids=None)
+        assert len(results) == 2
+
+
 class TestSegmentVersionsCRUD:
     def test_save_and_get_segment_version(self, db: Database) -> None:
         """バージョンを記録して取得できる"""
@@ -556,6 +597,37 @@ class TestSegmentVersionsCRUD:
         assert "segment_versions" in table_names
 
 
+class TestValidateVideoIds:
+    def test_all_exist(self, db: Database) -> None:
+        """全IDが存在する場合"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
+        db.save_video("vid2", "UC1", "Video 2", None, 7200, "ja", False)
+        existing, missing = db.validate_video_ids(["vid1", "vid2"])
+        assert set(existing) == {"vid1", "vid2"}
+        assert missing == []
+
+    def test_some_missing(self, db: Database) -> None:
+        """一部が存在しない場合"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
+        existing, missing = db.validate_video_ids(["vid1", "vid_unknown"])
+        assert existing == ["vid1"]
+        assert missing == ["vid_unknown"]
+
+    def test_all_missing(self, db: Database) -> None:
+        """全IDが存在しない場合"""
+        existing, missing = db.validate_video_ids(["vid_x", "vid_y"])
+        assert existing == []
+        assert set(missing) == {"vid_x", "vid_y"}
+
+    def test_empty_list(self, db: Database) -> None:
+        """空リストの場合"""
+        existing, missing = db.validate_video_ids([])
+        assert existing == []
+        assert missing == []
+
+
 class TestVectorSearch:
     def test_vector_search(self, db: Database) -> None:
         db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
@@ -569,3 +641,36 @@ class TestVectorSearch:
 
         results = db.vector_search([0.85] * 1536, limit=5)
         assert len(results) > 0
+
+
+class TestVectorSearchVideoIdFilter:
+    @pytest.fixture
+    def db_multi(self, db: Database):
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
+        db.save_video("vid2", "UC1", "Video 2", None, 7200, "ja", False)
+        db.save_segments_with_vectors("vid1", [
+            {"start_ms": 0, "end_ms": 60000, "summary": "topic1"},
+        ], [[0.1] * 1536])
+        db.save_segments_with_vectors("vid2", [
+            {"start_ms": 0, "end_ms": 60000, "summary": "topic2"},
+        ], [[0.9] * 1536])
+        return db
+
+    def test_filter_by_single_video_id(self, db_multi: Database) -> None:
+        results = db_multi.vector_search([0.5] * 1536, limit=10, video_ids=["vid1"])
+        assert len(results) >= 1
+        for r in results:
+            assert r["video_id"] == "vid1"
+
+    def test_filter_by_multiple_video_ids(self, db_multi: Database) -> None:
+        results = db_multi.vector_search([0.5] * 1536, limit=10, video_ids=["vid1", "vid2"])
+        assert len(results) == 2
+
+    def test_no_filter_returns_all(self, db_multi: Database) -> None:
+        results = db_multi.vector_search([0.5] * 1536, limit=10)
+        assert len(results) == 2
+
+    def test_filter_with_none_returns_all(self, db_multi: Database) -> None:
+        results = db_multi.vector_search([0.5] * 1536, limit=10, video_ids=None)
+        assert len(results) == 2

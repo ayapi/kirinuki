@@ -15,19 +15,35 @@ class SearchService:
         self._db = db
         self._embedding = embedding_provider
 
-    def search(self, query: str, limit: int = 10) -> list[SearchResult]:
+    def search(
+        self,
+        query: str,
+        limit: int = 10,
+        video_ids: list[str] | None = None,
+    ) -> tuple[list[SearchResult], list[str]]:
+        warnings: list[str] = []
+        existing_ids: list[str] | None = None
+
+        if video_ids:
+            existing, missing = self._db.validate_video_ids(video_ids)
+            for vid in missing:
+                warnings.append(f"動画ID '{vid}' はデータベースに存在しません")
+            if not existing:
+                return [], warnings
+            existing_ids = existing
+
         # キーワード検索（FTS5 trigram: 3文字以上必要）
         fts_results = []
         if len(query) >= 3:
-            fts_results = self._db.fts_search_segments(query, limit=limit * 2)
+            fts_results = self._db.fts_search_segments(query, limit=limit * 2, video_ids=existing_ids)
 
         # ベクトル意味検索
         query_vector = self._embedding.embed([query])[0]
-        vec_results = self._db.vector_search(query_vector, limit=limit * 2)
+        vec_results = self._db.vector_search(query_vector, limit=limit * 2, video_ids=existing_ids)
 
         # マージ・重複排除・スコアリング
         merged = self._merge_results(fts_results, vec_results, limit)
-        return merged
+        return merged, warnings
 
     def _merge_results(
         self,

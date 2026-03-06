@@ -106,7 +106,7 @@ class TestFullWorkflow:
 
         # 3. 検索
         mock_embedding.embed.return_value = [[0.5] * 1536]
-        results = services["search"].search("マインクラフト")
+        results, _ = services["search"].search("マインクラフト")
         assert len(results) > 0
         # YouTube URLのフォーマット確認
         for r in results:
@@ -230,7 +230,7 @@ class TestFullWorkflow:
         services["sync"].sync_all()
 
         mock_embedding.embed.return_value = [[0.5] * 1536]
-        results = services["search"].search("テストキーワード")
+        results, _ = services["search"].search("テストキーワード")
         # ベクトル検索で結果が返る
         assert len(results) > 0
         for r in results:
