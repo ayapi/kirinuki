@@ -66,6 +66,7 @@ class TestSuggestCommand:
         assert "--count" in result.output
         assert "--threshold" in result.output
         assert "--json" in result.output
+        assert "--video-id" in result.output
 
     def test_text_output(self, tmp_path: Path) -> None:
         db_path = _setup_test_db(tmp_path)
@@ -110,3 +111,70 @@ class TestSuggestCommand:
         with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path):
             result = runner.invoke(cli, ["suggest", "UNKNOWN"])
         assert result.exit_code != 0 or "登録" in result.output
+
+
+class TestSuggestVideoIdOption:
+    def test_video_id_without_channel(self, tmp_path: Path) -> None:
+        """--video-id指定時はチャンネル引数なしで動作する"""
+        db_path = _setup_test_db(tmp_path)
+        runner = CliRunner()
+        with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
+             patch("kirinuki.infra.llm.LLMClient.evaluate_segments", side_effect=_fake_evaluate):
+            result = runner.invoke(cli, [
+                "suggest", "--video-id", "vid000", "--threshold", "1",
+            ])
+        assert result.exit_code == 0
+        assert "テスト動画 0" in result.output
+
+    def test_multiple_video_ids(self, tmp_path: Path) -> None:
+        """複数の--video-idを指定できる"""
+        db_path = _setup_test_db(tmp_path)
+        runner = CliRunner()
+        with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
+             patch("kirinuki.infra.llm.LLMClient.evaluate_segments", side_effect=_fake_evaluate):
+            result = runner.invoke(cli, [
+                "suggest", "--video-id", "vid000", "--video-id", "vid001",
+                "--threshold", "1",
+            ])
+        assert result.exit_code == 0
+        assert "テスト動画 0" in result.output
+        assert "テスト動画 1" in result.output
+
+    def test_video_id_with_json(self, tmp_path: Path) -> None:
+        """--video-id + --jsonで正しいJSON出力"""
+        db_path = _setup_test_db(tmp_path)
+        runner = CliRunner()
+        with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
+             patch("kirinuki.infra.llm.LLMClient.evaluate_segments", side_effect=_fake_evaluate):
+            result = runner.invoke(cli, [
+                "suggest", "--video-id", "vid000", "--json", "--threshold", "1",
+            ])
+        assert result.exit_code == 0
+        parsed = json.loads(result.output)
+        assert "videos" in parsed
+        video_ids = [v["video_id"] for v in parsed["videos"]]
+        assert video_ids == ["vid000"]
+
+    def test_missing_video_id_warning(self, tmp_path: Path) -> None:
+        """存在しない動画IDの警告が出力される"""
+        db_path = _setup_test_db(tmp_path)
+        runner = CliRunner()
+        with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
+             patch("kirinuki.infra.llm.LLMClient.evaluate_segments", side_effect=_fake_evaluate):
+            result = runner.invoke(cli, [
+                "suggest", "--video-id", "vid000", "--video-id", "MISSING",
+                "--threshold", "1",
+            ])
+        assert result.exit_code == 0
+        # 警告はstderrに出力されるが、CliRunnerはデフォルトでmixする
+        assert "MISSING" in result.output
+
+    def test_all_missing_video_ids_error(self, tmp_path: Path) -> None:
+        """全動画IDが存在しない場合はエラー"""
+        db_path = _setup_test_db(tmp_path)
+        runner = CliRunner()
+        with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path):
+            result = runner.invoke(cli, [
+                "suggest", "--video-id", "MISSING1", "--video-id", "MISSING2",
+            ])
+        assert result.exit_code != 0

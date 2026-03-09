@@ -34,12 +34,7 @@ class SuggestService:
 
     def suggest(self, options: SuggestOptions) -> SuggestResult:
         """最新アーカイブの切り抜き候補を推薦する。"""
-        if not self._db.channel_exists(options.channel_id):
-            raise ChannelNotFoundError(options.channel_id)
-
-        videos = self._db.get_latest_videos(options.channel_id, options.count)
-        if not videos:
-            raise NoArchivesError(options.channel_id)
+        videos, warnings = self._resolve_videos(options)
 
         all_videos: list[VideoWithRecommendations] = []
         total_candidates = 0
@@ -66,7 +61,32 @@ class SuggestService:
             videos=all_videos,
             total_candidates=total_candidates,
             filtered_count=filtered_count,
+            warnings=warnings,
         )
+
+    def _resolve_videos(
+        self, options: SuggestOptions
+    ) -> tuple[list[dict[str, str]], list[str]]:
+        """動画リストを取得する。video_ids指定時はIDで取得、未指定時は最新N件。"""
+        if options.video_ids:
+            videos = self._db.get_videos_by_ids(options.video_ids)
+            found_ids = {v["video_id"] for v in videos}
+            warnings = [
+                f"動画ID '{vid}' はデータベースに存在しません"
+                for vid in options.video_ids
+                if vid not in found_ids
+            ]
+            if not videos:
+                raise NoArchivesError(options.video_ids[0])
+            return videos, warnings
+
+        if not self._db.channel_exists(options.channel_id):
+            raise ChannelNotFoundError(options.channel_id)
+
+        videos = self._db.get_latest_videos(options.channel_id, options.count)
+        if not videos:
+            raise NoArchivesError(options.channel_id)
+        return videos, []
 
     def _get_or_evaluate(self, video_id: str) -> list[SegmentRecommendation]:
         """キャッシュ確認→LLM評価のフロー"""
