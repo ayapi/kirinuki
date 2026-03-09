@@ -356,7 +356,7 @@ class YtdlpClient:
             "format": (
                 "bestvideo[ext=mp4]+bestaudio[ext=m4a]"
                 "/best[ext=mp4]"
-                "/bestvideo+bestaudio/best"
+                "/bestvideo*+bestaudio*/best*"
             ),
             "format_sort": ["proto:https"],
             "outtmpl": str(output_dir / f"{video_id}.%(ext)s"),
@@ -450,7 +450,7 @@ class YtdlpClient:
             "format": (
                 "bestvideo[ext=mp4]+bestaudio[ext=m4a]"
                 "/best[ext=mp4]"
-                "/bestvideo+bestaudio/best"
+                "/bestvideo*+bestaudio*/best*"
             ),
             "format_sort": ["proto:https"],
             "download_ranges": download_range_func(

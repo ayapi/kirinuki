@@ -68,6 +68,6 @@ class FfmpegClientImpl:
         logger.debug("ffmpeg command: %s", " ".join(cmd))
 
         try:
-            subprocess.run(cmd, capture_output=True, text=True, check=True)
+            subprocess.run(cmd, capture_output=True, text=True, check=True, encoding="utf-8", errors="replace")
         except subprocess.CalledProcessError as e:
             raise ClipError(f"ffmpegによる切り出しに失敗しました: {e.stderr}") from e

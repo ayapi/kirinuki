@@ -71,6 +71,11 @@ class MultiClipRequest(BaseModel):
     def validate_ranges(self) -> "MultiClipRequest":
         if len(self.ranges) < 1:
             raise ValueError("rangesは1つ以上指定してください")
+        # 拡張子がなければ .mp4 を付与
+        from pathlib import PurePosixPath
+
+        if not PurePosixPath(self.filename).suffix:
+            self.filename = f"{self.filename}.mp4"
         return self
 
 
