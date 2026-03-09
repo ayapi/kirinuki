@@ -299,11 +299,12 @@ class Database:
         ]
 
     def fts_search(self, query: str, limit: int = 50) -> list[dict]:
+        escaped_query = '"' + query.replace('"', '""') + '"'
         rows = self._execute(
             """SELECT video_id, start_ms, duration_ms, text
                FROM subtitle_fts WHERE subtitle_fts MATCH ?
                LIMIT ?""",
-            (query, limit),
+            (escaped_query, limit),
         ).fetchall()
         return [
             {"video_id": row[0], "start_ms": row[1], "duration_ms": row[2], "text": row[3]}
@@ -552,7 +553,8 @@ class Database:
         self, query: str, limit: int = 50, video_ids: list[str] | None = None,
     ) -> list[dict]:
         """FTS検索結果から関連するセグメントを特定して返す"""
-        params: list = [query]
+        escaped_query = '"' + query.replace('"', '""') + '"'
+        params: list = [escaped_query]
         video_filter = ""
         if video_ids:
             placeholders = ",".join("?" for _ in video_ids)
