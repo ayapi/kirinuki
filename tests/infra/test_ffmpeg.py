@@ -40,10 +40,9 @@ class TestClip:
         assert "ffmpeg" in cmd
         assert "-ss" in cmd
         assert "-c:v" in cmd
+        assert "libx264" in cmd
         assert "-c:a" in cmd
         assert "aac" in cmd
-        assert "-af" in cmd
-        assert "aresample=async=1:first_pts=0" in cmd
         assert "+faststart" in cmd
 
     @patch("kirinuki.infra.ffmpeg.subprocess.run")
