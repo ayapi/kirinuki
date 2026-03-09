@@ -20,9 +20,10 @@ class SegmentRecommendation(BaseModel):
 
 @dataclass
 class SuggestOptions:
-    channel_id: str
+    channel_id: str | None = None
     count: int = 3
     threshold: int = 7
+    video_ids: list[str] | None = None
 
 
 @dataclass
@@ -38,3 +39,4 @@ class SuggestResult:
     videos: list[VideoWithRecommendations]
     total_candidates: int
     filtered_count: int
+    warnings: list[str] = field(default_factory=list)

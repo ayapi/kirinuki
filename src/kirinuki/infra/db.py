@@ -135,6 +135,24 @@ class DatabaseClient:
         conn.close()
         return rows
 
+    def get_videos_by_ids(self, video_ids: list[str]) -> list[dict[str, str]]:
+        """指定された動画IDの情報を取得する。存在しないIDは結果に含まれない。"""
+        conn = sqlite3.connect(str(self.db_path))
+        conn.row_factory = sqlite3.Row
+        placeholders = ",".join("?" for _ in video_ids)
+        cursor = conn.execute(
+            f"""
+            SELECT video_id, title, published_at, duration_seconds
+            FROM videos
+            WHERE video_id IN ({placeholders})
+            ORDER BY published_at DESC
+            """,
+            video_ids,
+        )
+        rows = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return rows
+
     def get_segments_for_video(self, video_id: str) -> list[dict[str, str | int]]:
         """動画のセグメント一覧を取得する"""
         conn = sqlite3.connect(str(self.db_path))

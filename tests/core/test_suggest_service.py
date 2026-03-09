@@ -85,6 +85,38 @@ class FakeLLMClient:
         ]
 
 
+class TestSuggestOptionsDefaults:
+    def test_video_ids_default_none(self) -> None:
+        opts = SuggestOptions(channel_id="UC123")
+        assert opts.video_ids is None
+
+    def test_channel_id_default_none(self) -> None:
+        opts = SuggestOptions()
+        assert opts.channel_id is None
+
+    def test_video_ids_set(self) -> None:
+        opts = SuggestOptions(video_ids=["vid001", "vid002"])
+        assert opts.video_ids == ["vid001", "vid002"]
+        assert opts.channel_id is None
+
+
+class TestSuggestResultWarnings:
+    def test_warnings_default_empty(self) -> None:
+        from kirinuki.models.recommendation import SuggestResult
+
+        result = SuggestResult(videos=[], total_candidates=0, filtered_count=0)
+        assert result.warnings == []
+
+    def test_warnings_set(self) -> None:
+        from kirinuki.models.recommendation import SuggestResult
+
+        result = SuggestResult(
+            videos=[], total_candidates=0, filtered_count=0,
+            warnings=["動画ID 'abc' はデータベースに存在しません"],
+        )
+        assert len(result.warnings) == 1
+
+
 class TestLatestVideoSelection:
     def test_select_latest_3_videos(self, tmp_path: Path) -> None:
         db = _setup_db(tmp_path)
@@ -129,6 +161,91 @@ class TestLatestVideoSelection:
 
         with pytest.raises(ChannelNotFoundError):
             service.suggest(opts)
+
+
+class TestVideoIdFiltering:
+    def test_video_ids_uses_get_videos_by_ids(self, tmp_path: Path) -> None:
+        """video_ids指定時はget_videos_by_idsが呼ばれる"""
+        db = _setup_db(tmp_path)
+        _add_videos(db, 5)
+        for i in range(5):
+            _add_segments(db, f"vid{i:03d}", 2)
+
+        llm = FakeLLMClient()
+        service = SuggestService(db=db, llm=llm)
+        opts = SuggestOptions(video_ids=["vid000", "vid002"], threshold=1)
+        result = service.suggest(opts)
+
+        video_ids = [v.video_id for v in result.videos]
+        assert set(video_ids) == {"vid000", "vid002"}
+
+    def test_video_ids_ignores_count(self, tmp_path: Path) -> None:
+        """video_ids指定時はcountは無視される"""
+        db = _setup_db(tmp_path)
+        _add_videos(db, 5)
+        for i in range(5):
+            _add_segments(db, f"vid{i:03d}", 2)
+
+        llm = FakeLLMClient()
+        service = SuggestService(db=db, llm=llm)
+        opts = SuggestOptions(video_ids=["vid000", "vid001", "vid002"], count=1, threshold=1)
+        result = service.suggest(opts)
+
+        assert len(result.videos) == 3
+
+    def test_video_ids_skips_channel_check(self, tmp_path: Path) -> None:
+        """video_ids指定時はチャンネルIDのチェックをスキップ"""
+        db = _setup_db(tmp_path)
+        _add_videos(db, 2)
+        for i in range(2):
+            _add_segments(db, f"vid{i:03d}", 2)
+
+        llm = FakeLLMClient()
+        service = SuggestService(db=db, llm=llm)
+        # channel_id=None でもvideo_idsがあればエラーにならない
+        opts = SuggestOptions(video_ids=["vid000"], threshold=1)
+        result = service.suggest(opts)
+        assert len(result.videos) == 1
+
+    def test_partial_missing_ids_adds_warnings(self, tmp_path: Path) -> None:
+        """一部の動画IDが存在しない場合は警告を出す"""
+        db = _setup_db(tmp_path)
+        _add_videos(db, 2)
+        for i in range(2):
+            _add_segments(db, f"vid{i:03d}", 2)
+
+        llm = FakeLLMClient()
+        service = SuggestService(db=db, llm=llm)
+        opts = SuggestOptions(video_ids=["vid000", "MISSING"], threshold=1)
+        result = service.suggest(opts)
+
+        assert len(result.videos) == 1
+        assert len(result.warnings) == 1
+        assert "MISSING" in result.warnings[0]
+
+    def test_all_missing_ids_raises_error(self, tmp_path: Path) -> None:
+        """全動画IDが存在しない場合はNoArchivesErrorを送出"""
+        db = _setup_db(tmp_path)
+        llm = FakeLLMClient()
+        service = SuggestService(db=db, llm=llm)
+        opts = SuggestOptions(video_ids=["MISSING1", "MISSING2"])
+
+        with pytest.raises(NoArchivesError):
+            service.suggest(opts)
+
+    def test_without_video_ids_uses_channel(self, tmp_path: Path) -> None:
+        """video_ids未指定時は従来のchannel_id+count動作"""
+        db = _setup_db(tmp_path)
+        _add_videos(db, 5)
+        for i in range(5):
+            _add_segments(db, f"vid{i:03d}", 2)
+
+        llm = FakeLLMClient()
+        service = SuggestService(db=db, llm=llm)
+        opts = SuggestOptions(channel_id="UC123", count=2, threshold=1)
+        result = service.suggest(opts)
+
+        assert len(result.videos) == 2
 
 
 class TestThresholdFiltering:

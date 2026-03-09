@@ -35,26 +35,44 @@ def _status(msg: str, is_json: bool) -> None:
 @click.option("--threshold", default=7, show_default=True, help="推薦スコア閾値（1〜10）")
 @click.option("--json", "output_json", is_flag=True, default=False, help="JSON形式で出力")
 @click.option("--tui", is_flag=True, default=False, help="TUIモードで結果を表示し、切り抜きを実行")
-def suggest(channel: str | None, count: int, threshold: int, output_json: bool, tui: bool) -> None:
+@click.option("--video-id", multiple=True, default=(), help="絞り込む動画ID（複数指定可）")
+def suggest(
+    channel: str | None,
+    count: int,
+    threshold: int,
+    output_json: bool,
+    tui: bool,
+    video_id: tuple[str, ...],
+) -> None:
     """チャンネルの最新アーカイブから切り抜き候補を推薦する。
 
     CHANNEL: チャンネルID（例: UC...）。省略時は登録チャンネルが1つなら自動選択。
+    --video-id 指定時は CHANNEL を省略できます。
     """
     db_path = get_db_path()
     db = DatabaseClient(db_path)
-    channel = resolve_channel_id(channel, db)
     config = AppConfig()
     llm = LLMClient(api_key=config.anthropic_api_key, model=config.llm_model)
 
+    video_ids = list(video_id) if video_id else None
+
+    if video_ids:
+        options = SuggestOptions(video_ids=video_ids, count=count, threshold=threshold)
+    else:
+        channel = resolve_channel_id(channel, db)
+        options = SuggestOptions(channel_id=channel, count=count, threshold=threshold)
+
     service = SuggestService(db=db, llm=llm)
     formatter = RecommendationFormatter()
-    options = SuggestOptions(channel_id=channel, count=count, threshold=threshold)
 
     try:
         _status("対象動画を選定中...", output_json)
 
         # まず動画一覧を取得して表示
-        videos = db.get_latest_videos(channel, count)
+        if video_ids:
+            videos = db.get_videos_by_ids(video_ids)
+        else:
+            videos = db.get_latest_videos(channel, count)
         if videos:
             _status(f"\n対象アーカイブ ({len(videos)}件):", output_json)
             for v in videos:
@@ -63,6 +81,10 @@ def suggest(channel: str | None, count: int, threshold: int, output_json: bool, 
 
         _status("セグメントを評価中...", output_json)
         result = service.suggest(options)
+
+        # 警告メッセージをstderrに出力
+        for w in result.warnings:
+            click.echo(f"警告: {w}", err=True)
 
         if not result.videos:
             msg = (
