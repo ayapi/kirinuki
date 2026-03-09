@@ -42,6 +42,9 @@ class TestClip:
         assert "-c:v" in cmd
         assert "-c:a" in cmd
         assert "aac" in cmd
+        assert "-af" in cmd
+        assert "aresample=async=1:first_pts=0" in cmd
+        assert "+faststart" in cmd
 
     @patch("kirinuki.infra.ffmpeg.subprocess.run")
     def test_clip_failure(self, mock_run: MagicMock, tmp_path: Path) -> None:

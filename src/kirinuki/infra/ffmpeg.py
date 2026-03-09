@@ -60,8 +60,12 @@ class FfmpegClientImpl:
             "copy",
             "-c:a",
             "aac",
+            "-af",
+            "aresample=async=1:first_pts=0",
             "-avoid_negative_ts",
             "make_zero",
+            "-movflags",
+            "+faststart",
             str(output_path),
         ]
 
