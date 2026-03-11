@@ -1,7 +1,6 @@
 """切り抜き動画生成のオーケストレーションサービス"""
 
 import logging
-import tempfile
 from pathlib import Path
 from typing import Protocol
 
@@ -15,10 +14,12 @@ logger = logging.getLogger(__name__)
 class _YtdlpClient(Protocol):
     def fetch_video_metadata(self, video_id: str) -> object: ...
 
-    def download_video(
+    def download_section(
         self,
         video_id: str,
-        output_dir: Path,
+        start_seconds: float,
+        end_seconds: float,
+        output_path: Path,
         cookie_file: Path | None = None,
     ) -> Path: ...
 
@@ -26,17 +27,9 @@ class _YtdlpClient(Protocol):
 class _FfmpegClient(Protocol):
     def check_available(self) -> None: ...
 
-    def clip(
-        self,
-        input_path: Path,
-        output_path: Path,
-        start_seconds: float,
-        end_seconds: float,
-    ) -> None: ...
-
 
 class SegmentExtractorServiceImpl:
-    """DL → 区間切り出し → クリーンアップのオーケストレーション"""
+    """範囲DLによる区間切り出しのオーケストレーション"""
 
     def __init__(
         self,
@@ -48,7 +41,7 @@ class SegmentExtractorServiceImpl:
 
     def extract(self, request: ClipRequest) -> ClipResult:
         """指定URLの指定区間を切り出した動画を生成する。"""
-        # 1. ffmpeg存在確認
+        # 1. ffmpeg存在確認（download_sectionが内部でffmpegを使用）
         self._ffmpeg.check_available()
 
         # 2. URL解析
@@ -72,14 +65,14 @@ class SegmentExtractorServiceImpl:
             filename = format_default_filename(video_id, start, end, request.output_format)
             output_path = Path.cwd() / filename
 
-        # 5. 一時ディレクトリで DL → 切り出し → クリーンアップ
-        if request.temp_dir is not None:
-            request.temp_dir.mkdir(parents=True, exist_ok=True)
-            self._run_pipeline(video_id, request, start, end, output_path, request.temp_dir)
-        else:
-            with tempfile.TemporaryDirectory() as td:
-                temp_dir = Path(td)
-                self._run_pipeline(video_id, request, start, end, output_path, temp_dir)
+        # 5. download_section で範囲DL・切り出しを一体処理
+        self._ytdlp.download_section(
+            video_id,
+            start,
+            end,
+            output_path,
+            cookie_file=request.cookie_file,
+        )
 
         return ClipResult(
             output_path=output_path,
@@ -88,27 +81,3 @@ class SegmentExtractorServiceImpl:
             end_seconds=end,
             duration_seconds=end - start,
         )
-
-    def _run_pipeline(
-        self,
-        video_id: str,
-        request: ClipRequest,
-        start: float,
-        end: float,
-        output_path: Path,
-        temp_dir: Path,
-    ) -> None:
-        """DL → 切り出しパイプラインを実行する。"""
-        downloaded_path = self._ytdlp.download_video(
-            video_id,
-            temp_dir,
-            cookie_file=request.cookie_file,
-        )
-
-        try:
-            self._ffmpeg.clip(downloaded_path, output_path, start, end)
-        finally:
-            # ダウンロードした元動画を削除
-            if downloaded_path.exists():
-                downloaded_path.unlink()
-                logger.debug("一時ファイル削除: %s", downloaded_path)

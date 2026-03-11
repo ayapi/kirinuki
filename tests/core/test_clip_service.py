@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, call
 import pytest
 
 from kirinuki.core.clip_service import ClipService
-from kirinuki.core.errors import ClipError, VideoDownloadError
+from kirinuki.core.errors import AuthenticationRequiredError, ClipError, VideoDownloadError
 from kirinuki.models.clip import (
     MultiClipRequest,
     MultiClipResult,
@@ -20,23 +20,15 @@ def mock_ytdlp() -> MagicMock:
 
 
 @pytest.fixture
-def mock_ffmpeg() -> MagicMock:
-    return MagicMock()
-
-
-@pytest.fixture
-def service(mock_ytdlp: MagicMock, mock_ffmpeg: MagicMock) -> ClipService:
-    return ClipService(ytdlp_client=mock_ytdlp, ffmpeg_client=mock_ffmpeg)
+def service(mock_ytdlp: MagicMock) -> ClipService:
+    return ClipService(ytdlp_client=mock_ytdlp)
 
 
 class TestClipServiceExecute:
     def test_single_range_success(
-        self, service: ClipService, mock_ytdlp: MagicMock, mock_ffmpeg: MagicMock, tmp_path: Path
+        self, service: ClipService, mock_ytdlp: MagicMock, tmp_path: Path
     ) -> None:
-        """単一範囲の正常系: DL1回 + ffmpegカット1回"""
-        downloaded = tmp_path / "temp" / "dQw4w9WgXcQ.mp4"
-        mock_ytdlp.download_video.return_value = downloaded
-
+        """単一範囲の正常系: download_section1回"""
         request = MultiClipRequest(
             video_id="dQw4w9WgXcQ",
             filename="video.mp4",
@@ -50,18 +42,18 @@ class TestClipServiceExecute:
         assert result.video_id == "dQw4w9WgXcQ"
         assert result.success_count == 1
         assert result.failure_count == 0
-        mock_ytdlp.download_video.assert_called_once()
-        mock_ffmpeg.clip.assert_called_once_with(
-            downloaded, tmp_path / "video.mp4", 60.0, 120.0
+        mock_ytdlp.download_section.assert_called_once_with(
+            "dQw4w9WgXcQ",
+            60.0,
+            120.0,
+            tmp_path / "video.mp4",
+            cookie_file=None,
         )
 
-    def test_multiple_ranges_single_download(
-        self, service: ClipService, mock_ytdlp: MagicMock, mock_ffmpeg: MagicMock, tmp_path: Path
+    def test_multiple_ranges_individual_downloads(
+        self, service: ClipService, mock_ytdlp: MagicMock, tmp_path: Path
     ) -> None:
-        """複数範囲でもDLは1回だけ"""
-        downloaded = tmp_path / "temp" / "dQw4w9WgXcQ.mp4"
-        mock_ytdlp.download_video.return_value = downloaded
-
+        """複数範囲では各範囲ごとにdownload_sectionが呼ばれる"""
         request = MultiClipRequest(
             video_id="dQw4w9WgXcQ",
             filename="video.mp4",
@@ -77,19 +69,15 @@ class TestClipServiceExecute:
 
         assert result.success_count == 3
         assert result.failure_count == 0
-        mock_ytdlp.download_video.assert_called_once()
-        assert mock_ffmpeg.clip.call_count == 3
+        assert mock_ytdlp.download_section.call_count == 3
 
     def test_partial_failure(
-        self, service: ClipService, mock_ytdlp: MagicMock, mock_ffmpeg: MagicMock, tmp_path: Path
+        self, service: ClipService, mock_ytdlp: MagicMock, tmp_path: Path
     ) -> None:
-        """3範囲中1つのffmpegカットが失敗、残り2つは成功"""
-        downloaded = tmp_path / "temp" / "dQw4w9WgXcQ.mp4"
-        mock_ytdlp.download_video.return_value = downloaded
-
-        mock_ffmpeg.clip.side_effect = [
+        """3範囲中1つのdownload_sectionが失敗、残り2つは成功"""
+        mock_ytdlp.download_section.side_effect = [
             None,
-            ClipError("ffmpegエラー"),
+            VideoDownloadError("ダウンロードエラー"),
             None,
         ]
 
@@ -113,15 +101,31 @@ class TestClipServiceExecute:
         assert result.outcomes[1].error is not None
         assert result.outcomes[2].output_path is not None
 
+    def test_auth_error_propagates(
+        self, service: ClipService, mock_ytdlp: MagicMock, tmp_path: Path
+    ) -> None:
+        """認証エラーは個別失敗にせず即座に再送出される"""
+        mock_ytdlp.download_section.side_effect = AuthenticationRequiredError("認証が必要です")
+
+        request = MultiClipRequest(
+            video_id="dQw4w9WgXcQ",
+            filename="video.mp4",
+            output_dir=tmp_path,
+            ranges=[
+                TimeRange(start_seconds=60.0, end_seconds=120.0),
+                TimeRange(start_seconds=180.0, end_seconds=240.0),
+            ],
+        )
+
+        with pytest.raises(AuthenticationRequiredError):
+            service.execute(request)
+
     def test_output_dir_auto_created(
-        self, service: ClipService, mock_ytdlp: MagicMock, mock_ffmpeg: MagicMock, tmp_path: Path
+        self, service: ClipService, mock_ytdlp: MagicMock, tmp_path: Path
     ) -> None:
         """出力先ディレクトリが存在しない場合に自動作成される"""
         output_dir = tmp_path / "new_subdir" / "output"
         assert not output_dir.exists()
-
-        downloaded = tmp_path / "temp" / "dQw4w9WgXcQ.mp4"
-        mock_ytdlp.download_video.return_value = downloaded
 
         request = MultiClipRequest(
             video_id="dQw4w9WgXcQ",
@@ -134,12 +138,9 @@ class TestClipServiceExecute:
         assert output_dir.exists()
 
     def test_progress_callback(
-        self, service: ClipService, mock_ytdlp: MagicMock, mock_ffmpeg: MagicMock, tmp_path: Path
+        self, service: ClipService, mock_ytdlp: MagicMock, tmp_path: Path
     ) -> None:
-        """進捗コールバックがDL通知+処理番号で呼ばれる"""
-        downloaded = tmp_path / "temp" / "dQw4w9WgXcQ.mp4"
-        mock_ytdlp.download_video.return_value = downloaded
-
+        """進捗コールバックが各範囲で呼ばれる"""
         request = MultiClipRequest(
             video_id="dQw4w9WgXcQ",
             filename="video.mp4",
@@ -154,19 +155,16 @@ class TestClipServiceExecute:
         progress_calls: list[str] = []
         service.execute(request, on_progress=lambda msg: progress_calls.append(msg))
 
-        assert len(progress_calls) == 4  # DL通知 + 3区間
-        assert "ダウンロード" in progress_calls[0]
-        assert "[1/3]" in progress_calls[1]
-        assert "[2/3]" in progress_calls[2]
-        assert "[3/3]" in progress_calls[3]
+        assert len(progress_calls) == 3
+        assert "[1/3]" in progress_calls[0]
+        assert "[2/3]" in progress_calls[1]
+        assert "[3/3]" in progress_calls[2]
 
     def test_cookie_file_passed(
-        self, service: ClipService, mock_ytdlp: MagicMock, mock_ffmpeg: MagicMock, tmp_path: Path
+        self, service: ClipService, mock_ytdlp: MagicMock, tmp_path: Path
     ) -> None:
-        """cookie_fileがdownload_videoに渡される"""
+        """cookie_fileがdownload_sectionに渡される"""
         cookie_file = tmp_path / "cookies.txt"
-        downloaded = tmp_path / "temp" / "dQw4w9WgXcQ.mp4"
-        mock_ytdlp.download_video.return_value = downloaded
 
         request = MultiClipRequest(
             video_id="dQw4w9WgXcQ",
@@ -178,16 +176,13 @@ class TestClipServiceExecute:
 
         service.execute(request)
 
-        _, kwargs = mock_ytdlp.download_video.call_args
+        _, kwargs = mock_ytdlp.download_section.call_args
         assert kwargs.get("cookie_file") == cookie_file
 
     def test_output_path_numbering_single(
-        self, service: ClipService, mock_ytdlp: MagicMock, mock_ffmpeg: MagicMock, tmp_path: Path
+        self, service: ClipService, mock_ytdlp: MagicMock, tmp_path: Path
     ) -> None:
         """単一範囲のファイル名に連番なし"""
-        downloaded = tmp_path / "temp" / "dQw4w9WgXcQ.mp4"
-        mock_ytdlp.download_video.return_value = downloaded
-
         request = MultiClipRequest(
             video_id="dQw4w9WgXcQ",
             filename="video.mp4",
@@ -197,17 +192,14 @@ class TestClipServiceExecute:
 
         service.execute(request)
 
-        clip_call = mock_ffmpeg.clip.call_args
-        output_path_arg = clip_call[0][1]
+        call_args = mock_ytdlp.download_section.call_args
+        output_path_arg = call_args[0][3]
         assert output_path_arg == tmp_path / "video.mp4"
 
     def test_output_path_numbering_multiple(
-        self, service: ClipService, mock_ytdlp: MagicMock, mock_ffmpeg: MagicMock, tmp_path: Path
+        self, service: ClipService, mock_ytdlp: MagicMock, tmp_path: Path
     ) -> None:
         """複数範囲のファイル名に連番あり"""
-        downloaded = tmp_path / "temp" / "dQw4w9WgXcQ.mp4"
-        mock_ytdlp.download_video.return_value = downloaded
-
         request = MultiClipRequest(
             video_id="dQw4w9WgXcQ",
             filename="video.mp4",
@@ -220,8 +212,8 @@ class TestClipServiceExecute:
 
         service.execute(request)
 
-        calls = mock_ffmpeg.clip.call_args_list
-        first_output = calls[0][0][1]
+        calls = mock_ytdlp.download_section.call_args_list
+        first_output = calls[0][0][3]
         assert first_output == tmp_path / "video1.mp4"
-        second_output = calls[1][0][1]
+        second_output = calls[1][0][3]
         assert second_output == tmp_path / "video2.mp4"

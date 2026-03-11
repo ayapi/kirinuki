@@ -66,9 +66,8 @@ def clip(
         raise SystemExit(1) from e
 
     ytdlp = YtdlpClient(config)
-    ffmpeg = FfmpegClientImpl()
-    ffmpeg.check_available()
-    service = ClipService(ytdlp_client=ytdlp, ffmpeg_client=ffmpeg)
+    FfmpegClientImpl().check_available()
+    service = ClipService(ytdlp_client=ytdlp)
 
     try:
         result = service.execute(request, on_progress=click.echo)
