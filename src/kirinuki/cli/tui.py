@@ -223,11 +223,11 @@ def execute_clips(
 
 
 def create_clip_service(config: object) -> object:
-    """AppConfigからClipServiceを生成する共通ヘルパー。"""
-    from kirinuki.core.clip_service import ClipService
-    from kirinuki.infra.ffmpeg import FfmpegClientImpl
-    from kirinuki.infra.ytdlp_client import YtdlpClient
+    """AppConfigからClipServiceを生成する共通ヘルパー。
 
-    ytdlp = YtdlpClient(config)
-    FfmpegClientImpl().check_available()
-    return ClipService(ytdlp_client=ytdlp)
+    .. deprecated::
+        ``kirinuki.cli.factory.create_clip_service`` を使用してください。
+    """
+    from kirinuki.cli.factory import create_clip_service as _factory
+
+    return _factory(config)

@@ -5,8 +5,8 @@ from pathlib import Path
 import click
 from pydantic import ValidationError
 
+from kirinuki.cli.factory import create_clip_service
 from kirinuki.cli.main import cli
-from kirinuki.core.clip_service import ClipService
 from kirinuki.core.clip_utils import parse_time_ranges, resolve_video_id
 from kirinuki.core.errors import (
     AuthenticationRequiredError,
@@ -14,8 +14,6 @@ from kirinuki.core.errors import (
     VideoDownloadError,
 )
 from kirinuki.core.formatter import format_time_range
-from kirinuki.infra.ffmpeg import FfmpegClientImpl
-from kirinuki.infra.ytdlp_client import YtdlpClient
 from kirinuki.models.clip import MultiClipRequest
 from kirinuki.models.config import AppConfig
 
@@ -65,9 +63,7 @@ def clip(
         click.echo(f"エラー: リクエストが不正です: {e}", err=True)
         raise SystemExit(1) from e
 
-    ytdlp = YtdlpClient(config)
-    FfmpegClientImpl().check_available()
-    service = ClipService(ytdlp_client=ytdlp)
+    service = create_clip_service(config)
 
     try:
         result = service.execute(request, on_progress=click.echo)

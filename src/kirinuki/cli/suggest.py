@@ -128,9 +128,9 @@ def suggest(
 
 def _run_tui_flow_suggest(result: object, config: AppConfig) -> None:
     """suggest結果のTUIフロー処理"""
+    from kirinuki.cli.factory import create_clip_service
     from kirinuki.cli.tui import (
         adapt_suggest_results,
-        create_clip_service,
         execute_clips,
         run_tui_select,
     )

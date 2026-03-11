@@ -435,11 +435,10 @@ class Database:
     ) -> None:
         assert self._conn is not None
         segment_ids = self.save_segments(video_id, segments_data)
-        for seg_id, vec in zip(segment_ids, vectors):
-            self._conn.execute(
-                "INSERT INTO segment_vectors (segment_id, embedding) VALUES (?, ?)",
-                (seg_id, _serialize_f32(vec)),
-            )
+        self._conn.executemany(
+            "INSERT INTO segment_vectors (segment_id, embedding) VALUES (?, ?)",
+            [(seg_id, _serialize_f32(vec)) for seg_id, vec in zip(segment_ids, vectors)],
+        )
         self._conn.commit()
 
     def list_segments(self, video_id: str) -> list[Segment]:
@@ -696,16 +695,18 @@ class Database:
     def save_recommendations(self, recommendations: list[SegmentRecommendation]) -> None:
         """推薦結果をDBに保存する（UPSERT）"""
         assert self._conn is not None
-        for rec in recommendations:
-            self._conn.execute(
-                """INSERT INTO segment_recommendations
-                    (segment_id, video_id, score, summary, appeal, prompt_version)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(segment_id, prompt_version)
-                DO UPDATE SET score=excluded.score, summary=excluded.summary,
-                              appeal=excluded.appeal, created_at=CURRENT_TIMESTAMP""",
-                (rec.segment_id, rec.video_id, rec.score, rec.summary, rec.appeal, rec.prompt_version),
-            )
+        self._conn.executemany(
+            """INSERT INTO segment_recommendations
+                (segment_id, video_id, score, summary, appeal, prompt_version)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(segment_id, prompt_version)
+            DO UPDATE SET score=excluded.score, summary=excluded.summary,
+                          appeal=excluded.appeal, created_at=CURRENT_TIMESTAMP""",
+            [
+                (rec.segment_id, rec.video_id, rec.score, rec.summary, rec.appeal, rec.prompt_version)
+                for rec in recommendations
+            ],
+        )
         self._conn.commit()
 
     def channel_exists(self, channel_id: str) -> bool:

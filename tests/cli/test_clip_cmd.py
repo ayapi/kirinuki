@@ -38,14 +38,12 @@ class TestClipCommand:
         )
 
         with (
-            patch("kirinuki.cli.clip.ClipService") as MockService,
-            patch("kirinuki.cli.clip.YtdlpClient"),
-            patch("kirinuki.cli.clip.FfmpegClientImpl"),
+            patch("kirinuki.cli.clip.create_clip_service") as mock_create_clip,
             patch("kirinuki.cli.clip.AppConfig") as MockConfig,
         ):
             MockConfig.return_value.output_dir = tmp_path
             MockConfig.return_value.cookie_file_path = tmp_path / "cookies.txt"
-            MockService.return_value.execute.return_value = mock_result
+            mock_create_clip.return_value.execute.return_value = mock_result
 
             result = runner.invoke(
                 cli, ["clip", "dQw4w9WgXcQ", "output.mp4", "1:00-2:00"]
@@ -72,14 +70,12 @@ class TestClipCommand:
         )
 
         with (
-            patch("kirinuki.cli.clip.ClipService") as MockService,
-            patch("kirinuki.cli.clip.YtdlpClient"),
-            patch("kirinuki.cli.clip.FfmpegClientImpl"),
+            patch("kirinuki.cli.clip.create_clip_service") as mock_create_clip,
             patch("kirinuki.cli.clip.AppConfig") as MockConfig,
         ):
             MockConfig.return_value.output_dir = tmp_path
             MockConfig.return_value.cookie_file_path = tmp_path / "cookies.txt"
-            MockService.return_value.execute.return_value = mock_result
+            mock_create_clip.return_value.execute.return_value = mock_result
 
             result = runner.invoke(
                 cli, ["clip", "dQw4w9WgXcQ", "output.mp4", "1:00-2:00,3:00-4:00"]
@@ -101,14 +97,12 @@ class TestClipCommand:
         )
 
         with (
-            patch("kirinuki.cli.clip.ClipService") as MockService,
-            patch("kirinuki.cli.clip.YtdlpClient"),
-            patch("kirinuki.cli.clip.FfmpegClientImpl"),
+            patch("kirinuki.cli.clip.create_clip_service") as mock_create_clip,
             patch("kirinuki.cli.clip.AppConfig") as MockConfig,
         ):
             MockConfig.return_value.output_dir = tmp_path
             MockConfig.return_value.cookie_file_path = tmp_path / "cookies.txt"
-            MockService.return_value.execute.return_value = mock_result
+            mock_create_clip.return_value.execute.return_value = mock_result
 
             result = runner.invoke(
                 cli,
@@ -177,14 +171,12 @@ class TestClipCommand:
         )
 
         with (
-            patch("kirinuki.cli.clip.ClipService") as MockService,
-            patch("kirinuki.cli.clip.YtdlpClient"),
-            patch("kirinuki.cli.clip.FfmpegClientImpl"),
+            patch("kirinuki.cli.clip.create_clip_service") as mock_create_clip,
             patch("kirinuki.cli.clip.AppConfig") as MockConfig,
         ):
             MockConfig.return_value.output_dir = tmp_path / "default"
             MockConfig.return_value.cookie_file_path = tmp_path / "cookies.txt"
-            MockService.return_value.execute.return_value = mock_result
+            mock_create_clip.return_value.execute.return_value = mock_result
 
             result = runner.invoke(
                 cli,
@@ -200,7 +192,7 @@ class TestClipCommand:
 
         assert result.exit_code == 0
         # Verify the request was built with the custom dir
-        call_args = MockService.return_value.execute.call_args[0][0]
+        call_args = mock_create_clip.return_value.execute.call_args[0][0]
         assert call_args.output_dir == custom_dir
 
     def test_download_error(self, runner: CliRunner, tmp_path: Path) -> None:
@@ -217,14 +209,12 @@ class TestClipCommand:
         )
 
         with (
-            patch("kirinuki.cli.clip.ClipService") as MockService,
-            patch("kirinuki.cli.clip.YtdlpClient"),
-            patch("kirinuki.cli.clip.FfmpegClientImpl"),
+            patch("kirinuki.cli.clip.create_clip_service") as mock_create_clip,
             patch("kirinuki.cli.clip.AppConfig") as MockConfig,
         ):
             MockConfig.return_value.output_dir = tmp_path
             MockConfig.return_value.cookie_file_path = tmp_path / "cookies.txt"
-            MockService.return_value.execute.return_value = mock_result
+            mock_create_clip.return_value.execute.return_value = mock_result
 
             result = runner.invoke(
                 cli, ["clip", "dQw4w9WgXcQ", "output.mp4", "1:00-2:00"]
@@ -237,14 +227,12 @@ class TestClipCommand:
     def test_auth_required_error(self, runner: CliRunner, tmp_path: Path) -> None:
         """認証エラー"""
         with (
-            patch("kirinuki.cli.clip.ClipService") as MockService,
-            patch("kirinuki.cli.clip.YtdlpClient"),
-            patch("kirinuki.cli.clip.FfmpegClientImpl"),
+            patch("kirinuki.cli.clip.create_clip_service") as mock_create_clip,
             patch("kirinuki.cli.clip.AppConfig") as MockConfig,
         ):
             MockConfig.return_value.output_dir = tmp_path
             MockConfig.return_value.cookie_file_path = tmp_path / "cookies.txt"
-            MockService.return_value.execute.side_effect = AuthenticationRequiredError(
+            mock_create_clip.return_value.execute.side_effect = AuthenticationRequiredError(
                 "認証が必要です"
             )
 
@@ -279,14 +267,12 @@ class TestClipCommand:
         )
 
         with (
-            patch("kirinuki.cli.clip.ClipService") as MockService,
-            patch("kirinuki.cli.clip.YtdlpClient"),
-            patch("kirinuki.cli.clip.FfmpegClientImpl"),
+            patch("kirinuki.cli.clip.create_clip_service") as mock_create_clip,
             patch("kirinuki.cli.clip.AppConfig") as MockConfig,
         ):
             MockConfig.return_value.output_dir = tmp_path
             MockConfig.return_value.cookie_file_path = tmp_path / "cookies.txt"
-            MockService.return_value.execute.return_value = mock_result
+            mock_create_clip.return_value.execute.return_value = mock_result
 
             result = runner.invoke(
                 cli,
@@ -316,14 +302,12 @@ class TestClipCommand:
         )
 
         with (
-            patch("kirinuki.cli.clip.ClipService") as MockService,
-            patch("kirinuki.cli.clip.YtdlpClient"),
-            patch("kirinuki.cli.clip.FfmpegClientImpl"),
+            patch("kirinuki.cli.clip.create_clip_service") as mock_create_clip,
             patch("kirinuki.cli.clip.AppConfig") as MockConfig,
         ):
             MockConfig.return_value.output_dir = tmp_path
             MockConfig.return_value.cookie_file_path = tmp_path / "cookies.txt"
-            MockService.return_value.execute.return_value = mock_result
+            mock_create_clip.return_value.execute.return_value = mock_result
 
             result = runner.invoke(
                 cli, ["clip", "dQw4w9WgXcQ", "output.mp4", "1:00:00-1:01:00"]
