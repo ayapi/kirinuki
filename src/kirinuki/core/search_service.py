@@ -45,6 +45,7 @@ class SearchService:
         embeddings = self._embedding.embed([query])
         if not embeddings:
             logger.warning("embedding プロバイダが空の結果を返しました: query=%r", query)
+            warnings.append("意味検索が利用できません。キーワード検索の結果のみ表示します")
             return self._merge_results(fts_results, [], limit), warnings
         query_vector = embeddings[0]
         vec_results = self._db.vector_search(query_vector, limit=limit * 2, video_ids=existing_ids)

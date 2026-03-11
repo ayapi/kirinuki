@@ -66,10 +66,17 @@ class TestQueryValidation:
     def test_empty_embedding_result_does_not_raise(self, service, mock_embedding):
         """embeddingプロバイダが空リストを返してもIndexErrorにならない"""
         mock_embedding.embed.return_value = []
-        results, warnings = service.search("テスト")
-        # IndexErrorが発生せずに結果が返ること
-        assert isinstance(results, list)
-        assert isinstance(warnings, list)
+        results, warnings = service.search("マインクラフト")
+        # IndexErrorが発生せず、FTS結果が保持されること
+        assert len(results) > 0
+        assert any("意味検索" in w for w in warnings)
+
+    def test_empty_embedding_with_short_query(self, service, mock_embedding):
+        """短いクエリでFTSもスキップされる場合、空結果+警告が返る"""
+        mock_embedding.embed.return_value = []
+        results, warnings = service.search("ab")
+        assert results == []
+        assert any("意味検索" in w for w in warnings)
 
 
 class TestSearch:
