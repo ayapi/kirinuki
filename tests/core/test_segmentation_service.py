@@ -301,6 +301,91 @@ class TestSegmentVersionRecording:
         assert "vid1" not in result
 
 
+class TestAtomicSegmentWrite:
+    """セグメント書き込みのアトミック性テスト"""
+
+    def test_resegment_rollback_on_vector_save_failure(self, service, mock_llm, mock_embedding, db):
+        """ベクトル保存失敗時に旧セグメントがロールバックで保持される"""
+        # 既存セグメント
+        db.save_segments_with_vectors(
+            "vid1",
+            [{"start_ms": 0, "end_ms": 3600000, "summary": "旧セグメント"}],
+            [[0.1] * 1536],
+        )
+        db.save_subtitle_lines("vid1", [
+            SubtitleEntry(start_ms=0, duration_ms=5000, text="テスト字幕"),
+            SubtitleEntry(start_ms=1800000, duration_ms=5000, text="中盤字幕"),
+        ])
+
+        mock_llm.analyze_topics.return_value = [
+            TopicSegment(start_ms=0, end_ms=1800000, summary="新セグメント1"),
+            TopicSegment(start_ms=1800000, end_ms=3600000, summary="新セグメント2"),
+        ]
+        # embedding数がセグメント数と不一致 → ValueError
+        mock_embedding.embed.return_value = [[0.1] * 1536]
+
+        with pytest.raises(ValueError, match="長さが一致しません"):
+            service.resegment_video("vid1")
+
+        # ロールバックにより旧セグメントが保持されている
+        stored = db.list_segments("vid1")
+        assert len(stored) == 1
+        assert stored[0].summary == "旧セグメント"
+
+    def test_segments_vectors_length_mismatch_raises(self, db):
+        """segments_dataとvectorsの長さ不一致でValueErrorが発生する"""
+        with pytest.raises(ValueError, match="長さが一致しません"):
+            db.save_segments_with_vectors(
+                "vid1",
+                [{"start_ms": 0, "end_ms": 60000, "summary": "テスト"}],
+                [],  # ベクトルが空
+            )
+
+    def test_transaction_commits_all_or_nothing(self, db):
+        """トランザクション内で例外が発生すると全操作がロールバックされる"""
+        db.save_segments_with_vectors(
+            "vid1",
+            [{"start_ms": 0, "end_ms": 60000, "summary": "既存セグメント"}],
+            [[0.1] * 1536],
+        )
+
+        with pytest.raises(ValueError):
+            with db.transaction():
+                db.delete_segments("vid1")
+                # 不正データで例外発生
+                db.save_segments_with_vectors("vid1", [{"start_ms": 0, "end_ms": 60000, "summary": "新"}], [])
+
+        # ロールバックで既存セグメントが残っている
+        stored = db.list_segments("vid1")
+        assert len(stored) == 1
+        assert stored[0].summary == "既存セグメント"
+
+    def test_vec0_rollback_after_partial_write(self, db):
+        """vec0テーブルへの書き込み後にエラーが発生してもロールバックされる"""
+        db.save_segments_with_vectors(
+            "vid1",
+            [{"start_ms": 0, "end_ms": 60000, "summary": "既存セグメント"}],
+            [[0.1] * 1536],
+        )
+
+        with pytest.raises(RuntimeError):
+            with db.transaction():
+                db.delete_segments("vid1")
+                # 新セグメント+ベクトルを正常に書き込み
+                db.save_segments_with_vectors(
+                    "vid1",
+                    [{"start_ms": 0, "end_ms": 30000, "summary": "新1"}],
+                    [[0.2] * 1536],
+                )
+                # その後エラー発生
+                raise RuntimeError("simulated failure after vec0 write")
+
+        # vec0書き込み後でもロールバックされ、旧データが残る
+        stored = db.list_segments("vid1")
+        assert len(stored) == 1
+        assert stored[0].summary == "既存セグメント"
+
+
 class TestListSegments:
     def test_list(self, service, db, mock_llm, mock_embedding):
         mock_llm.analyze_topics.return_value = [

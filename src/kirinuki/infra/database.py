@@ -2,8 +2,10 @@
 
 import sqlite3
 import struct
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterator
 
 import sqlite_vec
 
@@ -113,6 +115,34 @@ class Database:
         self._db_path = str(db_path)
         self._embedding_dimensions = embedding_dimensions
         self._conn: sqlite3.Connection | None = None
+        self._in_transaction: bool = False
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """複数DB操作を単一トランザクションで包むコンテキストマネージャ。
+
+        ブロック内の個別commit()はスキップされ、ブロック正常終了時にcommit、
+        例外発生時にrollbackする。
+        """
+        assert self._conn is not None
+        if self._in_transaction:
+            yield
+            return
+        self._in_transaction = True
+        try:
+            yield
+            self._conn.commit()
+        except BaseException:
+            self._conn.rollback()
+            raise
+        finally:
+            self._in_transaction = False
+
+    def _auto_commit(self) -> None:
+        """トランザクション外なら即commit、トランザクション内ならスキップ。"""
+        if not self._in_transaction:
+            assert self._conn is not None
+            self._conn.commit()
 
     def initialize(self) -> None:
         if self._db_path != ":memory:":
@@ -161,7 +191,7 @@ class Database:
             "INSERT OR IGNORE INTO channels (channel_id, name, url) VALUES (?, ?, ?)",
             (channel_id, name, url),
         )
-        self._conn.commit()
+        self._auto_commit()
 
     def get_channel(self, channel_id: str) -> Channel | None:
         row = self._execute(
@@ -202,7 +232,7 @@ class Database:
             "UPDATE channels SET last_synced_at = ? WHERE channel_id = ?",
             (synced_at.isoformat(), channel_id),
         )
-        self._conn.commit()
+        self._auto_commit()
 
     # --- Video CRUD ---
 
@@ -233,7 +263,7 @@ class Database:
                 datetime.now(tz=timezone.utc).isoformat(),
             ),
         )
-        self._conn.commit()
+        self._auto_commit()
 
     def get_video(self, video_id: str) -> Video | None:
         row = self._execute(
@@ -301,7 +331,7 @@ class Database:
                 "INSERT INTO subtitle_fts (text, video_id, start_ms, duration_ms) VALUES (?, ?, ?, ?)",
                 (entry.text, video_id, entry.start_ms, entry.duration_ms),
             )
-        self._conn.commit()
+        self._auto_commit()
 
     def get_subtitle_entries(self, video_id: str) -> list[SubtitleEntry]:
         """DB保存済みの字幕行をSubtitleEntryリストとして返す。"""
@@ -351,7 +381,7 @@ class Database:
             "DELETE FROM segment_versions WHERE video_id = ?",
             (video_id,),
         )
-        self._conn.commit()
+        self._auto_commit()
         return cursor.rowcount
 
     # --- Segment Version CRUD ---
@@ -367,7 +397,7 @@ class Database:
                    segmented_at = excluded.segmented_at""",
             (video_id, prompt_version, datetime.now(tz=timezone.utc).isoformat()),
         )
-        self._conn.commit()
+        self._auto_commit()
 
     def get_video_ids_with_segment_version(self, prompt_version: str) -> set[str]:
         """指定バージョンでセグメンテーション完了済みのvideo_idセットを返す"""
@@ -384,7 +414,7 @@ class Database:
             "DELETE FROM segment_versions WHERE video_id = ?",
             (video_id,),
         )
-        self._conn.commit()
+        self._auto_commit()
 
     def get_unsegmented_video_ids_all(self) -> list[str]:
         """字幕はあるがセグメントがない動画IDの一覧を返す。"""
@@ -424,7 +454,7 @@ class Database:
                 (video_id, seg["start_ms"], seg["end_ms"], seg["summary"]),
             )
             ids.append(cursor.lastrowid or 0)
-        self._conn.commit()
+        self._auto_commit()
         return ids
 
     def save_segments_with_vectors(
@@ -434,13 +464,17 @@ class Database:
         vectors: list[list[float]],
     ) -> None:
         assert self._conn is not None
-        segment_ids = self.save_segments(video_id, segments_data)
-        for seg_id, vec in zip(segment_ids, vectors):
-            self._conn.execute(
-                "INSERT INTO segment_vectors (segment_id, embedding) VALUES (?, ?)",
-                (seg_id, _serialize_f32(vec)),
+        if len(segments_data) != len(vectors):
+            raise ValueError(
+                f"segments_data ({len(segments_data)}) と vectors ({len(vectors)}) の長さが一致しません"
             )
-        self._conn.commit()
+        with self.transaction():
+            segment_ids = self.save_segments(video_id, segments_data)
+            for seg_id, vec in zip(segment_ids, vectors):
+                self._conn.execute(
+                    "INSERT INTO segment_vectors (segment_id, embedding) VALUES (?, ?)",
+                    (seg_id, _serialize_f32(vec)),
+                )
 
     def list_segments(self, video_id: str) -> list[Segment]:
         rows = self._execute(
@@ -503,7 +537,7 @@ class Database:
                    recorded_at = excluded.recorded_at""",
             (video_id, channel_id, error_type, reason, datetime.now(tz=timezone.utc).isoformat()),
         )
-        self._conn.commit()
+        self._auto_commit()
 
     def get_unavailable_video_ids(self, channel_id: str) -> set[str]:
         rows = self._execute(
@@ -528,7 +562,7 @@ class Database:
             "DELETE FROM unavailable_videos WHERE channel_id = ? AND error_type = ?",
             (channel_id, error_type),
         )
-        self._conn.commit()
+        self._auto_commit()
         return cursor.rowcount
 
     def clear_all_unavailable(self, channel_id: str | None = None) -> int:
@@ -540,7 +574,7 @@ class Database:
             )
         else:
             cursor = self._conn.execute("DELETE FROM unavailable_videos")
-        self._conn.commit()
+        self._auto_commit()
         return cursor.rowcount
 
     def validate_video_ids(self, video_ids: list[str]) -> tuple[list[str], list[str]]:
@@ -706,7 +740,7 @@ class Database:
                               appeal=excluded.appeal, created_at=CURRENT_TIMESTAMP""",
                 (rec.segment_id, rec.video_id, rec.score, rec.summary, rec.appeal, rec.prompt_version),
             )
-        self._conn.commit()
+        self._auto_commit()
 
     def channel_exists(self, channel_id: str) -> bool:
         """チャンネルが登録済みかどうか"""
