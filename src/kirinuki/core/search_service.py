@@ -21,6 +21,10 @@ class SearchService:
         limit: int = 10,
         video_ids: list[str] | None = None,
     ) -> tuple[list[SearchResult], list[str]]:
+        query = query.strip()
+        if not query:
+            return [], ["検索クエリが空です"]
+
         warnings: list[str] = []
         existing_ids: list[str] | None = None
 
@@ -38,7 +42,11 @@ class SearchService:
             fts_results = self._db.fts_search_segments(query, limit=limit * 2, video_ids=existing_ids)
 
         # ベクトル意味検索
-        query_vector = self._embedding.embed([query])[0]
+        embeddings = self._embedding.embed([query])
+        if not embeddings:
+            logger.warning("embedding プロバイダが空の結果を返しました: query=%r", query)
+            return self._merge_results(fts_results, [], limit), warnings
+        query_vector = embeddings[0]
         vec_results = self._db.vector_search(query_vector, limit=limit * 2, video_ids=existing_ids)
 
         # マージ・重複排除・スコアリング

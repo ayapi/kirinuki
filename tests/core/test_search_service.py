@@ -43,6 +43,35 @@ def service(db, mock_embedding):
     return SearchService(db=db, embedding_provider=mock_embedding)
 
 
+class TestQueryValidation:
+    def test_empty_query_returns_warning(self, service, mock_embedding):
+        results, warnings = service.search("")
+        assert results == []
+        assert len(warnings) == 1
+        assert "空" in warnings[0]
+        mock_embedding.embed.assert_not_called()
+
+    def test_whitespace_only_query_returns_warning(self, service, mock_embedding):
+        results, warnings = service.search("   \t\n  ")
+        assert results == []
+        assert len(warnings) == 1
+        mock_embedding.embed.assert_not_called()
+
+    def test_query_is_stripped(self, service, mock_embedding):
+        mock_embedding.embed.return_value = [[0.5] * 1536]
+        results, _ = service.search("  マインクラフト  ")
+        assert len(results) > 0
+        mock_embedding.embed.assert_called_once_with(["マインクラフト"])
+
+    def test_empty_embedding_result_does_not_raise(self, service, mock_embedding):
+        """embeddingプロバイダが空リストを返してもIndexErrorにならない"""
+        mock_embedding.embed.return_value = []
+        results, warnings = service.search("テスト")
+        # IndexErrorが発生せずに結果が返ること
+        assert isinstance(results, list)
+        assert isinstance(warnings, list)
+
+
 class TestSearch:
     def test_keyword_search(self, service, mock_embedding):
         mock_embedding.embed.return_value = [[0.5] * 1536]
