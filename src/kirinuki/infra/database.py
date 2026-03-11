@@ -435,12 +435,11 @@ class Database:
     def get_resegment_target_video_ids(self) -> list[str]:
         """resegment対象の動画IDを公開日の新しい順に返す。
 
-        字幕またはセグメントが存在する動画が対象。
+        字幕が存在する動画が対象（resegmentには字幕が必須のため）。
         """
         rows = self._execute(
             """SELECT v.video_id FROM videos v
                WHERE EXISTS (SELECT 1 FROM subtitle_lines sl WHERE sl.video_id = v.video_id)
-                  OR EXISTS (SELECT 1 FROM segments s WHERE s.video_id = v.video_id)
                ORDER BY v.published_at IS NULL, v.published_at DESC"""
         ).fetchall()
         return [row[0] for row in rows]

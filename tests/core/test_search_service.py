@@ -86,7 +86,8 @@ class TestSearch:
         assert len(results) > 0
 
     def test_vector_search(self, service, mock_embedding):
-        mock_embedding.embed.return_value = [[0.85] * 1536]
+        # L2距離が1.0未満になるよう、保存済みベクトル[0.9]*1536に近いベクトルを使用
+        mock_embedding.embed.return_value = [[0.9] * 1536]
         results, _ = service.search("ゲーム実況")
         assert len(results) > 0
 
@@ -122,13 +123,14 @@ class TestMatchTypeTracking:
 
     def test_semantic_only_match_type(self, service, mock_embedding):
         """ベクトルのみでヒットした場合、match_type=SEMANTICが設定される"""
-        mock_embedding.embed.return_value = [[0.85] * 1536]
+        # L2距離が1.0未満になるよう、保存済みベクトル[0.9]*1536に近いベクトルを使用
+        mock_embedding.embed.return_value = [[0.9] * 1536]
         results, _ = service.search("ab")  # 2文字 → FTS不発
         semantic_results = [r for r in results if r.match_type == MatchType.SEMANTIC]
         assert len(semantic_results) > 0
         for r in semantic_results:
             assert r.similarity is not None
-            assert 0.0 <= r.similarity <= 1.0
+            assert 0.0 < r.similarity <= 1.0
 
     def test_hybrid_match_type(self, service, mock_embedding):
         """FTSとベクトル両方でヒットした場合、match_type=HYBRIDが設定される"""

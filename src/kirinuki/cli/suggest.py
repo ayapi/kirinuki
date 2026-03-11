@@ -124,6 +124,8 @@ def suggest(
     except Exception as e:
         click.echo(f"エラー: 予期しないエラーが発生しました: {e}", err=True)
         sys.exit(1)
+    finally:
+        db.close()
 
 
 def _run_tui_flow_suggest(result: object, config: AppConfig) -> None:

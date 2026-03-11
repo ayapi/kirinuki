@@ -94,6 +94,8 @@ class SearchService:
                     match_info[seg_id]["match_type"] = MatchType.HYBRID
                     match_info[seg_id]["similarity"] = similarity
             else:
+                if not is_meaningful_vec_match:
+                    continue
                 seen_segment_ids.add(seg_id)
                 scored.append((vec_score, r))
                 match_info[seg_id] = {
