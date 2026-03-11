@@ -235,6 +235,8 @@ class TestDeleteSegments:
 
     def test_deletes_segments_with_recommendations(self, db: Database) -> None:
         """segment_recommendationsがある場合でもFK違反せず削除できる"""
+        from kirinuki.models.recommendation import SegmentRecommendation
+
         db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
         db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
         segments_data = [
@@ -244,19 +246,18 @@ class TestDeleteSegments:
         db.save_segments_with_vectors("vid1", segments_data, vectors)
         seg_id = db.list_segments("vid1")[0].id
 
-        # segment_recommendationsテーブルを手動作成し子行を挿入
-        db._conn.execute(
-            """CREATE TABLE IF NOT EXISTS segment_recommendations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                segment_id INTEGER NOT NULL REFERENCES segments(id),
-                recommendation TEXT NOT NULL
-            )"""
-        )
-        db._conn.execute(
-            "INSERT INTO segment_recommendations (segment_id, recommendation) VALUES (?, ?)",
-            (seg_id, "おすすめ動画"),
-        )
-        db._conn.commit()
+        db.save_recommendations([
+            SegmentRecommendation(
+                segment_id=seg_id,
+                video_id="vid1",
+                start_time=0.0,
+                end_time=60.0,
+                score=8,
+                summary="おすすめ動画",
+                appeal="面白い",
+                prompt_version="v1",
+            )
+        ])
 
         # FK制約違反なく削除できることを検証
         deleted = db.delete_segments("vid1")

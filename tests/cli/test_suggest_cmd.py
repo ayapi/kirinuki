@@ -1,7 +1,6 @@
 """suggest サブコマンドのテスト"""
 
 import json
-import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,34 +8,36 @@ import pytest
 from click.testing import CliRunner
 
 from kirinuki.cli.main import cli
-from kirinuki.infra.db import DatabaseClient
+from kirinuki.infra.database import Database
 from kirinuki.models.recommendation import SegmentRecommendation
 
 
 def _setup_test_db(tmp_path: Path) -> Path:
     """テスト用DBを準備してパスを返す"""
+    from datetime import datetime, timezone
+
     db_path = tmp_path / "test.db"
-    db = DatabaseClient(db_path)
-    conn = sqlite3.connect(str(db_path))
-    conn.execute(
-        "INSERT INTO channels (channel_id, name, url) VALUES (?, ?, ?)",
-        ("UC123", "テストチャンネル", "https://youtube.com/c/test"),
-    )
+    db = Database(db_path=db_path, embedding_dimensions=1536)
+    db.initialize()
+    db.save_channel("UC123", "テストチャンネル", "https://youtube.com/c/test")
     for i in range(3):
-        conn.execute(
-            """INSERT INTO videos (video_id, channel_id, title, published_at,
-               duration_seconds, subtitle_language, is_auto_subtitle)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (f"vid{i:03d}", "UC123", f"テスト動画 {i}", f"2026-01-{i+1:02d}T00:00:00",
-             3600, "ja", 0),
+        db.save_video(
+            video_id=f"vid{i:03d}",
+            channel_id="UC123",
+            title=f"テスト動画 {i}",
+            published_at=datetime(2026, 1, i + 1, tzinfo=timezone.utc),
+            duration_seconds=3600,
+            subtitle_language="ja",
+            is_auto_subtitle=False,
         )
-        for j in range(2):
-            conn.execute(
-                "INSERT INTO segments (video_id, start_ms, end_ms, summary) VALUES (?, ?, ?, ?)",
-                (f"vid{i:03d}", j * 60000, (j + 1) * 60000, f"話題{j}: テスト話題"),
-            )
-    conn.commit()
-    conn.close()
+        db.save_segments(
+            f"vid{i:03d}",
+            [
+                {"start_ms": j * 60000, "end_ms": (j + 1) * 60000, "summary": f"話題{j}: テスト話題"}
+                for j in range(2)
+            ],
+        )
+    db.close()
     return db_path
 
 
@@ -90,14 +91,10 @@ class TestSuggestCommand:
 
     def test_no_archives_error(self, tmp_path: Path) -> None:
         db_path = tmp_path / "empty.db"
-        db = DatabaseClient(db_path)
-        conn = sqlite3.connect(str(db_path))
-        conn.execute(
-            "INSERT INTO channels (channel_id, name, url) VALUES (?, ?, ?)",
-            ("UC_EMPTY", "空チャンネル", "https://youtube.com/c/empty"),
-        )
-        conn.commit()
-        conn.close()
+        db = Database(db_path=db_path, embedding_dimensions=1536)
+        db.initialize()
+        db.save_channel("UC_EMPTY", "空チャンネル", "https://youtube.com/c/empty")
+        db.close()
 
         runner = CliRunner()
         with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path):
@@ -106,7 +103,9 @@ class TestSuggestCommand:
 
     def test_channel_not_found_error(self, tmp_path: Path) -> None:
         db_path = tmp_path / "test.db"
-        DatabaseClient(db_path)
+        db = Database(db_path=db_path, embedding_dimensions=1536)
+        db.initialize()
+        db.close()
         runner = CliRunner()
         with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path):
             result = runner.invoke(cli, ["suggest", "UNKNOWN"])

@@ -11,7 +11,7 @@ from kirinuki.cli.resolve import resolve_channel_id
 from kirinuki.core.errors import ChannelNotFoundError, NoArchivesError
 from kirinuki.core.formatter import RecommendationFormatter
 from kirinuki.core.suggest import SuggestService
-from kirinuki.infra.db import DatabaseClient
+from kirinuki.infra.database import Database
 from kirinuki.infra.llm import LLMClient
 from kirinuki.models.config import AppConfig
 from kirinuki.models.recommendation import SuggestOptions
@@ -50,8 +50,15 @@ def suggest(
     --video-id 指定時は CHANNEL を省略できます。
     """
     db_path = get_db_path()
-    db = DatabaseClient(db_path)
     config = AppConfig()
+    db = Database(db_path=db_path, embedding_dimensions=config.embedding_dimensions)
+
+    try:
+        db.initialize()
+    except Exception as e:
+        click.echo(f"エラー: データベースの初期化に失敗しました: {e}", err=True)
+        sys.exit(1)
+
     llm = LLMClient(api_key=config.anthropic_api_key, model=config.llm_model)
 
     video_ids = list(video_id) if video_id else None
