@@ -1,5 +1,7 @@
 """ClipService のユニットテスト"""
 
+import threading
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, call
 
@@ -21,7 +23,7 @@ def mock_ytdlp() -> MagicMock:
 
 @pytest.fixture
 def service(mock_ytdlp: MagicMock) -> ClipService:
-    return ClipService(ytdlp_client=mock_ytdlp)
+    return ClipService(ytdlp_client=mock_ytdlp, max_workers=4)
 
 
 class TestClipServiceExecute:
@@ -156,9 +158,12 @@ class TestClipServiceExecute:
         service.execute(request, on_progress=lambda msg: progress_calls.append(msg))
 
         assert len(progress_calls) == 3
-        assert "[1/3]" in progress_calls[0]
-        assert "[2/3]" in progress_calls[1]
-        assert "[3/3]" in progress_calls[2]
+        # Parallel execution means order is nondeterministic;
+        # verify all progress markers are present regardless of order
+        joined = "\n".join(progress_calls)
+        assert "[1/3]" in joined
+        assert "[2/3]" in joined
+        assert "[3/3]" in joined
 
     def test_cookie_file_passed(
         self, service: ClipService, mock_ytdlp: MagicMock, tmp_path: Path
@@ -217,3 +222,154 @@ class TestClipServiceExecute:
         assert first_output == tmp_path / "video1.mp4"
         second_output = calls[1][0][3]
         assert second_output == tmp_path / "video2.mp4"
+
+
+class TestClipServiceParallel:
+    def test_parallel_execution(self, mock_ytdlp: MagicMock, tmp_path: Path) -> None:
+        """複数クリップがThreadPoolExecutorで並列実行される"""
+        max_concurrent = 0
+        current_concurrent = 0
+        lock = threading.Lock()
+
+        def slow_download(*args, **kwargs):
+            nonlocal max_concurrent, current_concurrent
+            with lock:
+                current_concurrent += 1
+                max_concurrent = max(max_concurrent, current_concurrent)
+            time.sleep(0.05)
+            with lock:
+                current_concurrent -= 1
+
+        mock_ytdlp.download_section.side_effect = slow_download
+        service = ClipService(ytdlp_client=mock_ytdlp, max_workers=4)
+
+        request = MultiClipRequest(
+            video_id="test",
+            filename="clip.mp4",
+            output_dir=tmp_path,
+            ranges=[
+                TimeRange(start_seconds=float(i * 10), end_seconds=float(i * 10 + 10))
+                for i in range(4)
+            ],
+        )
+
+        result = service.execute(request)
+
+        assert result.success_count == 4
+        assert max_concurrent >= 2  # At least 2 ran concurrently
+
+    def test_max_workers_limits_concurrency(
+        self, mock_ytdlp: MagicMock, tmp_path: Path
+    ) -> None:
+        """max_workersが並列数を制限する"""
+        max_concurrent = 0
+        current_concurrent = 0
+        lock = threading.Lock()
+
+        def slow_download(*args, **kwargs):
+            nonlocal max_concurrent, current_concurrent
+            with lock:
+                current_concurrent += 1
+                max_concurrent = max(max_concurrent, current_concurrent)
+            time.sleep(0.05)
+            with lock:
+                current_concurrent -= 1
+
+        mock_ytdlp.download_section.side_effect = slow_download
+        service = ClipService(ytdlp_client=mock_ytdlp, max_workers=2)
+
+        request = MultiClipRequest(
+            video_id="test",
+            filename="clip.mp4",
+            output_dir=tmp_path,
+            ranges=[
+                TimeRange(start_seconds=float(i * 10), end_seconds=float(i * 10 + 10))
+                for i in range(4)
+            ],
+        )
+
+        result = service.execute(request)
+
+        assert result.success_count == 4
+        assert max_concurrent <= 2
+
+    def test_outcome_order_preserved(
+        self, mock_ytdlp: MagicMock, tmp_path: Path
+    ) -> None:
+        """並列実行でもoutcomesの順序が入力と一致する"""
+        delays = [0.1, 0.0, 0.05]  # Different completion order
+
+        def download_with_delay(*args, **kwargs):
+            start = args[1]
+            idx = int(start / 10)
+            time.sleep(delays[idx])
+
+        mock_ytdlp.download_section.side_effect = download_with_delay
+        service = ClipService(ytdlp_client=mock_ytdlp, max_workers=4)
+
+        ranges = [
+            TimeRange(start_seconds=float(i * 10), end_seconds=float(i * 10 + 10))
+            for i in range(3)
+        ]
+        request = MultiClipRequest(
+            video_id="test",
+            filename="clip.mp4",
+            output_dir=tmp_path,
+            ranges=ranges,
+        )
+
+        result = service.execute(request)
+
+        assert result.success_count == 3
+        for i, outcome in enumerate(result.outcomes):
+            assert outcome.range == ranges[i]
+
+    def test_auth_error_in_parallel(
+        self, mock_ytdlp: MagicMock, tmp_path: Path
+    ) -> None:
+        """並列実行でもAuthenticationRequiredErrorは即座に伝播する"""
+
+        def download_with_auth_error(*args, **kwargs):
+            start = args[1]
+            if start == 10.0:
+                raise AuthenticationRequiredError("認証が必要です")
+            time.sleep(0.1)
+
+        mock_ytdlp.download_section.side_effect = download_with_auth_error
+        service = ClipService(ytdlp_client=mock_ytdlp, max_workers=4)
+
+        request = MultiClipRequest(
+            video_id="test",
+            filename="clip.mp4",
+            output_dir=tmp_path,
+            ranges=[
+                TimeRange(start_seconds=float(i * 10), end_seconds=float(i * 10 + 10))
+                for i in range(3)
+            ],
+        )
+
+        with pytest.raises(AuthenticationRequiredError):
+            service.execute(request)
+
+    def test_sequential_fallback_with_max_workers_1(
+        self, mock_ytdlp: MagicMock, tmp_path: Path
+    ) -> None:
+        """max_workers=1でも正常に動作する（逐次実行）"""
+        service = ClipService(ytdlp_client=mock_ytdlp, max_workers=1)
+
+        request = MultiClipRequest(
+            video_id="test",
+            filename="clip.mp4",
+            output_dir=tmp_path,
+            ranges=[
+                TimeRange(start_seconds=0.0, end_seconds=10.0),
+                TimeRange(start_seconds=10.0, end_seconds=20.0),
+                TimeRange(start_seconds=20.0, end_seconds=30.0),
+            ],
+        )
+
+        result = service.execute(request)
+
+        assert result.success_count == 3
+        assert result.failure_count == 0
+        assert mock_ytdlp.download_section.call_count == 3
