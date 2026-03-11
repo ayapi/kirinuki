@@ -12,7 +12,7 @@ from kirinuki.core.errors import ChannelNotFoundError, NoArchivesError
 from kirinuki.core.formatter import RecommendationFormatter
 from kirinuki.core.suggest import SuggestService
 from kirinuki.infra.db import DatabaseClient
-from kirinuki.infra.llm import LLMClient
+from kirinuki.infra.llm_client import LlmClient
 from kirinuki.models.config import AppConfig
 from kirinuki.models.recommendation import SuggestOptions
 
@@ -52,7 +52,7 @@ def suggest(
     db_path = get_db_path()
     db = DatabaseClient(db_path)
     config = AppConfig()
-    llm = LLMClient(api_key=config.anthropic_api_key, model=config.llm_model)
+    llm = LlmClient(config)
 
     video_ids = list(video_id) if video_id else None
 

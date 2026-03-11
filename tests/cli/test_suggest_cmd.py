@@ -72,7 +72,7 @@ class TestSuggestCommand:
         db_path = _setup_test_db(tmp_path)
         runner = CliRunner()
         with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
-             patch("kirinuki.infra.llm.LLMClient.evaluate_segments", side_effect=_fake_evaluate):
+             patch("kirinuki.infra.llm_client.LlmClient.evaluate_segments", side_effect=_fake_evaluate):
             result = runner.invoke(cli, ["suggest", "UC123", "--threshold", "1"])
         assert result.exit_code == 0
         assert "テスト動画" in result.output
@@ -82,7 +82,7 @@ class TestSuggestCommand:
         db_path = _setup_test_db(tmp_path)
         runner = CliRunner()
         with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
-             patch("kirinuki.infra.llm.LLMClient.evaluate_segments", side_effect=_fake_evaluate):
+             patch("kirinuki.infra.llm_client.LlmClient.evaluate_segments", side_effect=_fake_evaluate):
             result = runner.invoke(cli, ["suggest", "UC123", "--json", "--threshold", "1"])
         assert result.exit_code == 0
         parsed = json.loads(result.output)
@@ -119,7 +119,7 @@ class TestSuggestVideoIdOption:
         db_path = _setup_test_db(tmp_path)
         runner = CliRunner()
         with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
-             patch("kirinuki.infra.llm.LLMClient.evaluate_segments", side_effect=_fake_evaluate):
+             patch("kirinuki.infra.llm_client.LlmClient.evaluate_segments", side_effect=_fake_evaluate):
             result = runner.invoke(cli, [
                 "suggest", "--video-id", "vid000", "--threshold", "1",
             ])
@@ -131,7 +131,7 @@ class TestSuggestVideoIdOption:
         db_path = _setup_test_db(tmp_path)
         runner = CliRunner()
         with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
-             patch("kirinuki.infra.llm.LLMClient.evaluate_segments", side_effect=_fake_evaluate):
+             patch("kirinuki.infra.llm_client.LlmClient.evaluate_segments", side_effect=_fake_evaluate):
             result = runner.invoke(cli, [
                 "suggest", "--video-id", "vid000", "--video-id", "vid001",
                 "--threshold", "1",
@@ -145,7 +145,7 @@ class TestSuggestVideoIdOption:
         db_path = _setup_test_db(tmp_path)
         runner = CliRunner()
         with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
-             patch("kirinuki.infra.llm.LLMClient.evaluate_segments", side_effect=_fake_evaluate):
+             patch("kirinuki.infra.llm_client.LlmClient.evaluate_segments", side_effect=_fake_evaluate):
             result = runner.invoke(cli, [
                 "suggest", "--video-id", "vid000", "--json", "--threshold", "1",
             ])
@@ -160,7 +160,7 @@ class TestSuggestVideoIdOption:
         db_path = _setup_test_db(tmp_path)
         runner = CliRunner()
         with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
-             patch("kirinuki.infra.llm.LLMClient.evaluate_segments", side_effect=_fake_evaluate):
+             patch("kirinuki.infra.llm_client.LlmClient.evaluate_segments", side_effect=_fake_evaluate):
             result = runner.invoke(cli, [
                 "suggest", "--video-id", "vid000", "--video-id", "MISSING",
                 "--threshold", "1",

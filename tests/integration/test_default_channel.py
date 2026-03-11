@@ -159,7 +159,7 @@ class TestSuggestDefaultChannel:
         db_path = _setup_single_channel_db(tmp_path)
         runner = CliRunner()
         with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
-             patch("kirinuki.infra.llm.LLMClient.evaluate_segments", side_effect=_fake_evaluate):
+             patch("kirinuki.infra.llm_client.LlmClient.evaluate_segments", side_effect=_fake_evaluate):
             result = runner.invoke(cli, ["suggest", "--threshold", "1"])
         assert result.exit_code == 0
 
@@ -178,6 +178,6 @@ class TestSuggestDefaultChannel:
         db_path = _setup_single_channel_db(tmp_path)
         runner = CliRunner()
         with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
-             patch("kirinuki.infra.llm.LLMClient.evaluate_segments", side_effect=_fake_evaluate):
+             patch("kirinuki.infra.llm_client.LlmClient.evaluate_segments", side_effect=_fake_evaluate):
             result = runner.invoke(cli, ["suggest", "UC_ONLY", "--threshold", "1"])
         assert result.exit_code == 0

@@ -1,4 +1,4 @@
-"""LLMClient.evaluate_segments のテスト（モック使用）"""
+"""LlmClient.evaluate_segments のテスト（モック使用）"""
 
 import json
 import logging
@@ -6,7 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from kirinuki.infra.llm import LLMClient
+from kirinuki.infra.llm_client import LlmClient
+from kirinuki.models.config import AppConfig
 
 
 SAMPLE_SEGMENTS = [
@@ -47,13 +48,18 @@ def _valid_json() -> str:
 
 @pytest.fixture
 def mock_anthropic():
-    with patch("kirinuki.infra.llm.anthropic.Anthropic") as mock_cls:
+    with patch("kirinuki.infra.llm_client.anthropic.Anthropic") as mock_cls:
         yield mock_cls
 
 
 @pytest.fixture
-def client(mock_anthropic):
-    return LLMClient(api_key="test-key", model="test-model")
+def client(tmp_path, mock_anthropic):
+    config = AppConfig(
+        db_path=tmp_path / "data.db",
+        anthropic_api_key="test-key",
+        llm_model="test-model",
+    )
+    return LlmClient(config)
 
 
 class TestEvaluateSegmentsNormal:
