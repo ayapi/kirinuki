@@ -107,10 +107,11 @@ class SegmentationService:
             {"start_ms": s.start_ms, "end_ms": s.end_ms, "summary": s.summary}
             for s in segments_raw
         ]
-        if replace:
-            self._db.delete_segments(video_id)
-        self._db.save_segments_with_vectors(video_id, segments_data, vectors)
-        self._db.save_segment_version(video_id, SEGMENT_PROMPT_VERSION)
+        with self._db.transaction():
+            if replace:
+                self._db.delete_segments(video_id)
+            self._db.save_segments_with_vectors(video_id, segments_data, vectors)
+            self._db.save_segment_version(video_id, SEGMENT_PROMPT_VERSION)
 
         return self._db.list_segments(video_id)
 
