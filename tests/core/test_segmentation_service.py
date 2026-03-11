@@ -194,9 +194,11 @@ class TestResegment:
             [{"start_ms": 0, "end_ms": 3600000, "summary": "旧セグメント"}],
             [[0.1] * 1536],
         )
-        # 字幕データ
+        # 字幕データ（2セグメントの境界にスナップできるよう配置）
         db.save_subtitle_lines("vid1", [
-            SubtitleEntry(start_ms=0, duration_ms=5000, text="テスト字幕"),
+            SubtitleEntry(start_ms=0, duration_ms=5000, text="冒頭の字幕"),
+            SubtitleEntry(start_ms=1800000, duration_ms=5000, text="中盤の字幕"),
+            SubtitleEntry(start_ms=3500000, duration_ms=5000, text="終盤の字幕"),
         ])
 
         mock_llm.analyze_topics.return_value = [
@@ -208,6 +210,15 @@ class TestResegment:
         segments = service.resegment_video("vid1")
         assert len(segments) == 2
         assert segments[0].summary == "新セグメント1"
+        assert segments[1].summary == "新セグメント2"
+        # スナップ後の境界値を確認
+        assert segments[0].start_ms == 0
+        assert segments[0].end_ms == 1800000
+        assert segments[1].start_ms == 1800000
+        assert segments[1].end_ms == 3505000  # 最終字幕の終端(3500000+5000)
+        # 旧セグメントが残っていないことを確認
+        summaries = [s.summary for s in segments]
+        assert "旧セグメント" not in summaries
 
     def test_resegment_no_subtitles(self, service, db):
         """字幕がない場合は空リスト"""

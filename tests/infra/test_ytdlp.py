@@ -387,7 +387,7 @@ class TestDownloadVideoNoFormatSuppression:
         }
         client.download_video("vid1", tmp_path)
         call_opts = mock_ydl_cls.call_args[0][0]
-        assert call_opts.get("format") == "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestvideo+bestaudio/best"
+        assert call_opts.get("format") == "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestvideo*+bestaudio*/best*"
 
 
 class TestFormatUnavailableWithMetadata:
