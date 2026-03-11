@@ -2,6 +2,7 @@
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from kirinuki.infra.database import Database
 from kirinuki.infra.embedding_provider import OpenAIEmbeddingProvider
@@ -21,10 +22,13 @@ class SegmentationService:
         db: Database,
         llm_client: LlmClient,
         embedding_provider: OpenAIEmbeddingProvider,
+        *,
+        max_workers: int = 4,
     ) -> None:
         self._db = db
         self._llm = llm_client
         self._embedding = embedding_provider
+        self._max_workers = max_workers
 
     def segment_video(self, video_id: str, subtitle_text: str) -> list[Segment]:
         if not subtitle_text.strip():
@@ -72,7 +76,9 @@ class SegmentationService:
             )
             chunks = self._chunk_entries(entries, CHUNK_MINUTES, OVERLAP_MINUTES)
             all_segments: list[TopicSegment] = []
-            for i, chunk in enumerate(chunks):
+
+            def _process_chunk(args: tuple[int, list[SubtitleEntry]]) -> list[TopicSegment]:
+                i, chunk = args
                 t_chunk = time.perf_counter()
                 chunk_text = self._build_subtitle_text(chunk)
                 segs = self._llm.analyze_topics(chunk_text)
@@ -82,7 +88,23 @@ class SegmentationService:
                     i + 1, len(chunks), len(chunk), len(chunk_text),
                     len(segs), t_chunk_done - t_chunk,
                 )
-                all_segments.extend(segs)
+                return segs
+
+            if len(chunks) <= 1:
+                for i, chunk in enumerate(chunks):
+                    all_segments.extend(_process_chunk((i, chunk)))
+            else:
+                workers = min(self._max_workers, len(chunks))
+                logger.info(
+                    "Processing %d chunks in parallel (max_workers=%d)",
+                    len(chunks), workers,
+                )
+                with ThreadPoolExecutor(max_workers=workers) as executor:
+                    chunk_results = list(
+                        executor.map(_process_chunk, enumerate(chunks))
+                    )
+                for segs in chunk_results:
+                    all_segments.extend(segs)
             # 重複排除（オーバーラップ区間）
             segments_raw = self._deduplicate_segments(all_segments)
         else:
@@ -191,33 +213,51 @@ class SegmentationService:
         max_segment_ms: int,
     ) -> list[TopicSegment]:
         """max_segment_ms超のセグメントを再分割する（1パスのみ）。"""
-        result: list[TopicSegment] = []
-        for seg in segments:
-            duration = seg.end_ms - seg.start_ms
-            if duration <= max_segment_ms:
-                result.append(seg)
-                continue
+        oversized_indices: list[int] = []
+        for i, seg in enumerate(segments):
+            if seg.end_ms - seg.start_ms > max_segment_ms:
+                oversized_indices.append(i)
 
-            # 該当セグメントの時間範囲のSubtitleEntryを抽出
+        if not oversized_indices:
+            return segments
+
+        def _resplit_one(seg: TopicSegment) -> list[TopicSegment]:
             seg_entries = [
                 e for e in entries if e.start_ms >= seg.start_ms and e.start_ms < seg.end_ms
             ]
             if not seg_entries:
-                result.append(seg)
-                continue
+                return [seg]
 
             text = self._build_subtitle_text(seg_entries)
             try:
                 sub_segments = self._llm.analyze_topics_resplit(text, seg.summary)
             except Exception:
                 logger.warning("Resplit failed for segment %s, keeping original", seg.summary)
-                result.append(seg)
-                continue
+                return [seg]
 
-            # 2つ以上に分割できた場合のみ採用
             if len(sub_segments) >= 2:
-                sub_segments = self._snap_to_entries(sub_segments, seg_entries)
-                result.extend(sub_segments)
+                return self._snap_to_entries(sub_segments, seg_entries)
+            return [seg]
+
+        # 複数の oversized セグメントを並列処理
+        oversized_segs = [segments[i] for i in oversized_indices]
+        if len(oversized_segs) <= 1:
+            resplit_results = [_resplit_one(s) for s in oversized_segs]
+        else:
+            workers = min(self._max_workers, len(oversized_segs))
+            logger.info(
+                "Resplitting %d oversized segments in parallel (max_workers=%d)",
+                len(oversized_segs), workers,
+            )
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                resplit_results = list(executor.map(_resplit_one, oversized_segs))
+
+        # 結果を元の順序で組み立て
+        resplit_map = dict(zip(oversized_indices, resplit_results))
+        result: list[TopicSegment] = []
+        for i, seg in enumerate(segments):
+            if i in resplit_map:
+                result.extend(resplit_map[i])
             else:
                 result.append(seg)
 

@@ -65,7 +65,10 @@ def create_app_context():
     embedding = OpenAIEmbeddingProvider(config)
 
     channel_svc = ChannelService(db=db, ytdlp_client=ytdlp)
-    segmentation_svc = SegmentationService(db=db, llm_client=llm, embedding_provider=embedding)
+    segmentation_svc = SegmentationService(
+        db=db, llm_client=llm, embedding_provider=embedding,
+        max_workers=config.max_concurrent_api_calls,
+    )
     sync_svc = SyncService(
         db=db,
         ytdlp_client=ytdlp,

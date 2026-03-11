@@ -25,3 +25,4 @@ class AppConfig(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
     output_dir: Path = Field(default_factory=lambda: KIRINUKI_DIR / "output")
+    max_concurrent_api_calls: int = Field(default=4, gt=0)
