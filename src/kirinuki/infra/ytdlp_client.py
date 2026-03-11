@@ -72,10 +72,10 @@ class YtdlpClient:
     def _is_auth_error(msg: str) -> bool:
         lower = msg.lower()
         return (
-            "Sign in" in msg
+            "sign in" in lower
             or "login" in lower
             or "members-only" in lower
-            or "Join this channel" in msg
+            or "join this channel" in lower
         )
 
     def list_channel_video_ids(self, channel_url: str) -> list[str]:
@@ -461,6 +461,9 @@ class YtdlpClient:
         used_cookie = False
         if cookie_file:
             opts["cookiefile"] = str(cookie_file)
+            used_cookie = True
+        elif self._config.cookie_file_path.exists():
+            opts["cookiefile"] = str(self._config.cookie_file_path)
             used_cookie = True
 
         url = f"https://www.youtube.com/watch?v={video_id}"
