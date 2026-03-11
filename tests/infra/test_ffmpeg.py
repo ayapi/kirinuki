@@ -59,6 +59,34 @@ class TestClip:
             client.clip(input_path, output_path, 10.0, 60.0)
 
     @patch("kirinuki.infra.ffmpeg.subprocess.run")
+    def test_clip_timeout(self, mock_run: MagicMock, tmp_path: Path) -> None:
+        """ffmpegがタイムアウトした場合にClipErrorが発生する"""
+        import subprocess
+
+        mock_run.side_effect = subprocess.TimeoutExpired("ffmpeg", 1800)
+        input_path = tmp_path / "input.mp4"
+        input_path.touch()
+        output_path = tmp_path / "output.mp4"
+
+        client = FfmpegClientImpl()
+        with pytest.raises(ClipError, match="タイムアウト"):
+            client.clip(input_path, output_path, 10.0, 60.0)
+
+    @patch("kirinuki.infra.ffmpeg.subprocess.run")
+    def test_clip_passes_timeout_to_subprocess(self, mock_run: MagicMock, tmp_path: Path) -> None:
+        """subprocess.runにtimeout引数が渡されること"""
+        mock_run.return_value = MagicMock(returncode=0)
+        input_path = tmp_path / "input.mp4"
+        input_path.touch()
+        output_path = tmp_path / "output.mp4"
+
+        client = FfmpegClientImpl()
+        client.clip(input_path, output_path, 10.0, 60.0)
+
+        kwargs = mock_run.call_args[1]
+        assert kwargs["timeout"] == 1800
+
+    @patch("kirinuki.infra.ffmpeg.subprocess.run")
     def test_clip_command_structure(self, mock_run: MagicMock, tmp_path: Path) -> None:
         """ffmpegコマンドが正しい構造で呼ばれることを確認"""
         mock_run.return_value = MagicMock(returncode=0)

@@ -4,9 +4,11 @@ import json
 import logging
 import re
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TypeVar
 
 import yt_dlp
 
@@ -17,6 +19,8 @@ from kirinuki.core.errors import (
 )
 from kirinuki.models.config import AppConfig
 from kirinuki.models.domain import SkipReason, SubtitleEntry
+
+_T = TypeVar("_T")
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +81,37 @@ class YtdlpClient:
             or "members-only" in lower
             or "join this channel" in lower
         )
+
+    def _handle_download_error(
+        self,
+        error: yt_dlp.DownloadError,
+        used_cookie: bool,
+        retry_with_cookie: Callable[[], _T],
+    ) -> _T:
+        """DownloadErrorの共通ハンドリング: 認証リトライ/エラー分岐。
+
+        認証エラーまたは一般エラーでcookie未使用の場合、cookie付きリトライを試みる。
+        リトライ不可の場合は適切な例外を送出する。
+        """
+        msg = str(error)
+        can_retry = not used_cookie and self._config.cookie_file_path.exists()
+
+        if self._is_auth_error(msg):
+            if can_retry:
+                return retry_with_cookie()
+            hint = msg
+            if not self._config.cookie_file_path.exists():
+                hint += "\ncookiesが未設定です。`kirinuki cookie set` で設定してください。"
+            raise AuthenticationRequiredError(
+                f"認証が必要です。Cookieファイルを設定してください: {hint}"
+            ) from error
+
+        if can_retry:
+            return retry_with_cookie()
+
+        raise VideoDownloadError(
+            f"動画のダウンロードに失敗しました: {msg}"
+        ) from error
 
     def list_channel_video_ids(self, channel_url: str) -> list[str]:
         """チャンネルの /streams タブからライブ配信アーカイブの動画IDを取得する。"""
@@ -375,27 +410,10 @@ class YtdlpClient:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=True)
         except yt_dlp.DownloadError as e:
-            msg = str(e)
-            if self._is_auth_error(msg):
-                if not used_cookie and self._config.cookie_file_path.exists():
-                    return self._download_video_with_cookie(
-                        opts, url, output_dir, video_id,
-                    )
-                hint = msg
-                if not self._config.cookie_file_path.exists():
-                    hint += "\ncookiesが未設定です。`kirinuki cookie set` で設定してください。"
-                raise AuthenticationRequiredError(
-                    f"認証が必要です。Cookieファイルを設定してください: {hint}"
-                ) from e
-            # Cookie未使用かつコンフィグにCookieがあれば、
-            # メンバー限定動画の可能性があるのでリトライ
-            if not used_cookie and self._config.cookie_file_path.exists():
-                return self._download_video_with_cookie(
-                    opts, url, output_dir, video_id,
-                )
-            raise VideoDownloadError(
-                f"動画のダウンロードに失敗しました: {msg}"
-            ) from e
+            return self._handle_download_error(
+                e, used_cookie,
+                lambda: self._download_video_with_cookie(opts, url, output_dir, video_id),
+            )
 
         assert info is not None
         filepath = info["requested_downloads"][0]["filepath"]
@@ -472,25 +490,10 @@ class YtdlpClient:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 ydl.extract_info(url, download=True)
         except yt_dlp.DownloadError as e:
-            msg = str(e)
-            if self._is_auth_error(msg):
-                if not used_cookie and self._config.cookie_file_path.exists():
-                    return self._download_section_with_cookie(
-                        opts, url, output_path,
-                    )
-                raise AuthenticationRequiredError(
-                    "認証が必要です。`kirinuki cookie set` で"
-                    f"Cookieを設定してください: {msg}"
-                ) from e
-            # Cookie未使用かつコンフィグにCookieがあれば、
-            # メンバー限定動画の可能性があるのでリトライ
-            if not used_cookie and self._config.cookie_file_path.exists():
-                return self._download_section_with_cookie(
-                    opts, url, output_path,
-                )
-            raise VideoDownloadError(
-                f"動画のダウンロードに失敗しました: {msg}"
-            ) from e
+            return self._handle_download_error(
+                e, used_cookie,
+                lambda: self._download_section_with_cookie(opts, url, output_path),
+            )
 
         return output_path
 

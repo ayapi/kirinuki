@@ -74,6 +74,13 @@ class FfmpegClientImpl:
         logger.debug("ffmpeg command: %s", " ".join(cmd))
 
         try:
-            subprocess.run(cmd, capture_output=True, text=True, check=True, encoding="utf-8", errors="replace")
+            subprocess.run(
+                cmd, capture_output=True, text=True, check=True,
+                encoding="utf-8", errors="replace", timeout=1800,
+            )
+        except subprocess.TimeoutExpired as e:
+            raise ClipError(
+                "ffmpegがタイムアウトしました（30分）。入力ファイルが破損している可能性があります"
+            ) from e
         except subprocess.CalledProcessError as e:
             raise ClipError(f"ffmpegによる切り出しに失敗しました: {e.stderr}") from e

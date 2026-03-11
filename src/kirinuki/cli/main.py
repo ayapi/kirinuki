@@ -318,7 +318,6 @@ def _run_tui_flow_search(results: list, config: AppConfig) -> None:
     """search結果のTUIフロー共通処理"""
     from kirinuki.cli.tui import (
         adapt_search_results,
-        create_clip_service,
         execute_clips,
         run_tui_select,
     )
@@ -343,7 +342,8 @@ def _run_tui_flow_segments(segs: list, config: AppConfig) -> None:
 
 def _run_tui_clip_flow(candidates: list, config: AppConfig) -> None:
     """TUI選択→切り抜き実行の共通フロー"""
-    from kirinuki.cli.tui import create_clip_service, execute_clips, run_tui_select
+    from kirinuki.cli.factory import create_clip_service
+    from kirinuki.cli.tui import execute_clips, run_tui_select
 
     selected = run_tui_select(candidates)
     if not selected:
