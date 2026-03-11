@@ -12,7 +12,7 @@ from kirinuki.core.errors import ChannelNotFoundError, NoArchivesError
 from kirinuki.core.formatter import RecommendationFormatter
 from kirinuki.core.suggest import SuggestService
 from kirinuki.infra.database import Database
-from kirinuki.infra.llm import LLMClient
+from kirinuki.infra.llm_client import LlmClient
 from kirinuki.models.config import AppConfig
 from kirinuki.models.recommendation import SuggestOptions
 
@@ -59,7 +59,7 @@ def suggest(
         click.echo(f"エラー: データベースの初期化に失敗しました: {e}", err=True)
         sys.exit(1)
 
-    llm = LLMClient(api_key=config.anthropic_api_key, model=config.llm_model)
+    llm = LlmClient(config)
 
     video_ids = list(video_id) if video_id else None
 

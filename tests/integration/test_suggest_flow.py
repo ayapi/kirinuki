@@ -72,7 +72,7 @@ class TestE2ETextOutput:
         db_path = _setup_full_db(tmp_path)
         runner = CliRunner()
         with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
-             patch("kirinuki.infra.llm.LLMClient.evaluate_segments",
+             patch("kirinuki.infra.llm_client.LlmClient.evaluate_segments",
                    side_effect=_fake_evaluate_varied):
             result = runner.invoke(cli, ["suggest", "UC_INT", "--threshold", "1"])
 
@@ -91,7 +91,7 @@ class TestE2ETextOutput:
         db_path = _setup_full_db(tmp_path)
         runner = CliRunner()
         with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
-             patch("kirinuki.infra.llm.LLMClient.evaluate_segments",
+             patch("kirinuki.infra.llm_client.LlmClient.evaluate_segments",
                    side_effect=_fake_evaluate_varied):
             result = runner.invoke(cli, ["suggest", "UC_INT", "--threshold", "8"])
 
@@ -107,7 +107,7 @@ class TestE2EJsonOutput:
         db_path = _setup_full_db(tmp_path)
         runner = CliRunner()
         with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
-             patch("kirinuki.infra.llm.LLMClient.evaluate_segments",
+             patch("kirinuki.infra.llm_client.LlmClient.evaluate_segments",
                    side_effect=_fake_evaluate_varied):
             result = runner.invoke(
                 cli, ["suggest", "UC_INT", "--json", "--threshold", "1"]
@@ -123,7 +123,7 @@ class TestE2EJsonOutput:
         db_path = _setup_full_db(tmp_path)
         runner = CliRunner()
         with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
-             patch("kirinuki.infra.llm.LLMClient.evaluate_segments",
+             patch("kirinuki.infra.llm_client.LlmClient.evaluate_segments",
                    side_effect=_fake_evaluate_varied):
             result = runner.invoke(
                 cli, ["suggest", "UC_INT", "--json", "--threshold", "1"]
@@ -181,7 +181,7 @@ class TestE2EErrorCases:
             ]
 
         with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
-             patch("kirinuki.infra.llm.LLMClient.evaluate_segments",
+             patch("kirinuki.infra.llm_client.LlmClient.evaluate_segments",
                    side_effect=low_score_evaluate):
             result = runner.invoke(cli, ["suggest", "UC_INT", "--threshold", "7"])
 
