@@ -1,56 +1,46 @@
 """デフォルトチャンネルID機能の統合テスト"""
 
-import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
 from kirinuki.cli.main import cli
-from kirinuki.infra.db import DatabaseClient
+from kirinuki.infra.database import Database
 from kirinuki.models.domain import ChannelSummary, VideoSummary
 from kirinuki.models.recommendation import SegmentRecommendation
 
 
 def _setup_single_channel_db(tmp_path: Path) -> Path:
     """1チャンネルのみ登録されたDBを準備する"""
+    from datetime import datetime, timezone
+
     db_path = tmp_path / "single.db"
-    DatabaseClient(db_path)
-    conn = sqlite3.connect(str(db_path))
-    conn.execute(
-        "INSERT INTO channels (channel_id, name, url) VALUES (?, ?, ?)",
-        ("UC_ONLY", "唯一のチャンネル", "https://youtube.com/c/only"),
+    db = Database(db_path=db_path, embedding_dimensions=1536)
+    db.initialize()
+    db.save_channel("UC_ONLY", "唯一のチャンネル", "https://youtube.com/c/only")
+    db.save_video(
+        video_id="vid001",
+        channel_id="UC_ONLY",
+        title="テスト動画",
+        published_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+        duration_seconds=3600,
+        subtitle_language="ja",
+        is_auto_subtitle=False,
     )
-    conn.execute(
-        """INSERT INTO videos (video_id, channel_id, title, published_at,
-           duration_seconds, subtitle_language, is_auto_subtitle)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        ("vid001", "UC_ONLY", "テスト動画", "2026-02-01T00:00:00", 3600, "ja", 0),
-    )
-    conn.execute(
-        "INSERT INTO segments (video_id, start_ms, end_ms, summary) VALUES (?, ?, ?, ?)",
-        ("vid001", 0, 60000, "テスト話題"),
-    )
-    conn.commit()
-    conn.close()
+    db.save_segments("vid001", [{"start_ms": 0, "end_ms": 60000, "summary": "テスト話題"}])
+    db.close()
     return db_path
 
 
 def _setup_multi_channel_db(tmp_path: Path) -> Path:
     """複数チャンネルが登録されたDBを準備する"""
     db_path = tmp_path / "multi.db"
-    DatabaseClient(db_path)
-    conn = sqlite3.connect(str(db_path))
-    conn.execute(
-        "INSERT INTO channels (channel_id, name, url) VALUES (?, ?, ?)",
-        ("UC_A", "チャンネルA", "https://youtube.com/c/a"),
-    )
-    conn.execute(
-        "INSERT INTO channels (channel_id, name, url) VALUES (?, ?, ?)",
-        ("UC_B", "チャンネルB", "https://youtube.com/c/b"),
-    )
-    conn.commit()
-    conn.close()
+    db = Database(db_path=db_path, embedding_dimensions=1536)
+    db.initialize()
+    db.save_channel("UC_A", "チャンネルA", "https://youtube.com/c/a")
+    db.save_channel("UC_B", "チャンネルB", "https://youtube.com/c/b")
+    db.close()
     return db_path
 
 

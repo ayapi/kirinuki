@@ -13,7 +13,7 @@ from kirinuki.models.recommendation import (
 )
 
 if TYPE_CHECKING:
-    from kirinuki.infra.db import DatabaseClient
+    from kirinuki.infra.database import Database
 
 PROMPT_VERSION = "v3"
 
@@ -28,7 +28,7 @@ class LLMClientProtocol(Protocol):
 
 
 class SuggestService:
-    def __init__(self, db: DatabaseClient, llm: LLMClientProtocol) -> None:
+    def __init__(self, db: Database, llm: LLMClientProtocol) -> None:
         self._db = db
         self._llm = llm
 

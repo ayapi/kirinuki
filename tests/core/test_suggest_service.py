@@ -1,62 +1,45 @@
 """SuggestServiceのユニットテスト"""
 
-import sqlite3
 from pathlib import Path
 
 import pytest
 
 from kirinuki.core.errors import ChannelNotFoundError, NoArchivesError
 from kirinuki.core.suggest import SuggestService
-from kirinuki.infra.db import DatabaseClient
+from kirinuki.infra.database import Database
 from kirinuki.models.recommendation import SegmentRecommendation, SuggestOptions
 
 
-def _setup_db(tmp_path: Path) -> DatabaseClient:
+def _setup_db(tmp_path: Path) -> Database:
     """テスト用DBを準備する"""
-    db = DatabaseClient(tmp_path / "test.db")
-    conn = sqlite3.connect(str(db.db_path))
-    conn.execute(
-        "INSERT INTO channels (channel_id, name, url) VALUES (?, ?, ?)",
-        ("UC123", "テストチャンネル", "https://youtube.com/c/test"),
-    )
-    conn.commit()
-    conn.close()
+    db = Database(db_path=tmp_path / "test.db", embedding_dimensions=1536)
+    db.initialize()
+    db.save_channel("UC123", "テストチャンネル", "https://youtube.com/c/test")
     return db
 
 
-def _add_videos(db: DatabaseClient, count: int) -> None:
+def _add_videos(db: Database, count: int) -> None:
     """テスト用動画をN件追加する"""
-    conn = sqlite3.connect(str(db.db_path))
+    from datetime import datetime, timezone
     for i in range(count):
-        conn.execute(
-            """INSERT INTO videos (video_id, channel_id, title, published_at,
-               duration_seconds, subtitle_language, is_auto_subtitle, synced_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                f"vid{i:03d}",
-                "UC123",
-                f"テスト動画 {i}",
-                f"2026-01-{i + 1:02d}T00:00:00",
-                3600,
-                "ja",
-                0,
-                f"2026-01-{i + 1:02d}T01:00:00",
-            ),
+        db.save_video(
+            video_id=f"vid{i:03d}",
+            channel_id="UC123",
+            title=f"テスト動画 {i}",
+            published_at=datetime(2026, 1, i + 1, tzinfo=timezone.utc),
+            duration_seconds=3600,
+            subtitle_language="ja",
+            is_auto_subtitle=False,
         )
-    conn.commit()
-    conn.close()
 
 
-def _add_segments(db: DatabaseClient, video_id: str, count: int) -> None:
+def _add_segments(db: Database, video_id: str, count: int) -> None:
     """テスト用セグメントを追加する"""
-    conn = sqlite3.connect(str(db.db_path))
-    for i in range(count):
-        conn.execute(
-            "INSERT INTO segments (video_id, start_ms, end_ms, summary) VALUES (?, ?, ?, ?)",
-            (video_id, i * 60000, (i + 1) * 60000, f"話題{i}: テスト話題の要約"),
-        )
-    conn.commit()
-    conn.close()
+    segments_data = [
+        {"start_ms": i * 60000, "end_ms": (i + 1) * 60000, "summary": f"話題{i}: テスト話題の要約"}
+        for i in range(count)
+    ]
+    db.save_segments(video_id, segments_data)
 
 
 class FakeLLMClient:
@@ -154,7 +137,8 @@ class TestLatestVideoSelection:
             service.suggest(opts)
 
     def test_unregistered_channel_raises_error(self, tmp_path: Path) -> None:
-        db = DatabaseClient(tmp_path / "test.db")
+        db = Database(db_path=tmp_path / "test.db", embedding_dimensions=1536)
+        db.initialize()
         llm = FakeLLMClient()
         service = SuggestService(db=db, llm=llm)
         opts = SuggestOptions(channel_id="UNKNOWN")

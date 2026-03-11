@@ -15,6 +15,7 @@ from kirinuki.models.domain import (
     Video,
     VideoSummary,
 )
+from kirinuki.models.recommendation import SegmentRecommendation
 
 SCHEMA_VERSION = 1
 
@@ -81,6 +82,21 @@ CREATE TABLE IF NOT EXISTS segment_versions (
     prompt_version TEXT NOT NULL,
     segmented_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS segment_recommendations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    segment_id INTEGER NOT NULL REFERENCES segments(id),
+    video_id TEXT NOT NULL REFERENCES videos(video_id),
+    score INTEGER NOT NULL CHECK(score BETWEEN 1 AND 10),
+    summary TEXT NOT NULL,
+    appeal TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_recommendations_video_id
+    ON segment_recommendations(video_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_recommendations_segment_prompt
+    ON segment_recommendations(segment_id, prompt_version);
 
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY
@@ -322,15 +338,11 @@ class Database:
             "(SELECT id FROM segments WHERE video_id = ?)",
             (video_id,),
         )
-        # segment_recommendationsが存在する場合は削除（suggest機能で作成されるテーブル）
-        try:
-            self._conn.execute(
-                "DELETE FROM segment_recommendations WHERE segment_id IN "
-                "(SELECT id FROM segments WHERE video_id = ?)",
-                (video_id,),
-            )
-        except sqlite3.OperationalError:
-            pass  # テーブルが存在しない環境
+        self._conn.execute(
+            "DELETE FROM segment_recommendations WHERE segment_id IN "
+            "(SELECT id FROM segments WHERE video_id = ?)",
+            (video_id,),
+        )
         cursor = self._conn.execute(
             "DELETE FROM segments WHERE video_id = ?",
             (video_id,),
@@ -590,3 +602,115 @@ class Database:
             }
             for row in rows
         ]
+
+    # --- Suggest 機能用メソッド ---
+
+    def get_latest_videos(self, channel_id: str, count: int) -> list[dict[str, str]]:
+        """チャンネルの最新N件のアーカイブを配信日時降順で取得する"""
+        rows = self._execute(
+            """SELECT video_id, title, published_at, duration_seconds
+               FROM videos
+               WHERE channel_id = ?
+               ORDER BY published_at DESC
+               LIMIT ?""",
+            (channel_id, count),
+        ).fetchall()
+        return [
+            {
+                "video_id": row[0],
+                "title": row[1],
+                "published_at": row[2],
+                "duration_seconds": row[3],
+            }
+            for row in rows
+        ]
+
+    def get_videos_by_ids(self, video_ids: list[str]) -> list[dict[str, str]]:
+        """指定された動画IDの情報を取得する。存在しないIDは結果に含まれない。"""
+        placeholders = ",".join("?" for _ in video_ids)
+        rows = self._execute(
+            f"""SELECT video_id, title, published_at, duration_seconds
+                FROM videos
+                WHERE video_id IN ({placeholders})
+                ORDER BY published_at DESC""",
+            tuple(video_ids),
+        ).fetchall()
+        return [
+            {
+                "video_id": row[0],
+                "title": row[1],
+                "published_at": row[2],
+                "duration_seconds": row[3],
+            }
+            for row in rows
+        ]
+
+    def get_segments_for_video(self, video_id: str) -> list[dict[str, str | int]]:
+        """動画のセグメント一覧をdict形式で取得する"""
+        rows = self._execute(
+            """SELECT id, video_id, start_ms, end_ms, summary
+               FROM segments
+               WHERE video_id = ?
+               ORDER BY start_ms""",
+            (video_id,),
+        ).fetchall()
+        return [
+            {
+                "id": row[0],
+                "video_id": row[1],
+                "start_ms": row[2],
+                "end_ms": row[3],
+                "summary": row[4],
+            }
+            for row in rows
+        ]
+
+    def get_cached_recommendations(
+        self, video_id: str, prompt_version: str
+    ) -> list[SegmentRecommendation] | None:
+        """キャッシュ済み推薦結果を取得。なければNone"""
+        rows = self._execute(
+            """SELECT sr.segment_id, sr.video_id, sr.score, sr.summary, sr.appeal,
+                      sr.prompt_version, s.start_ms, s.end_ms
+               FROM segment_recommendations sr
+               JOIN segments s ON sr.segment_id = s.id
+               WHERE sr.video_id = ? AND sr.prompt_version = ?""",
+            (video_id, prompt_version),
+        ).fetchall()
+        if not rows:
+            return None
+        return [
+            SegmentRecommendation(
+                segment_id=row[0],
+                video_id=row[1],
+                start_time=row[6] / 1000.0,
+                end_time=row[7] / 1000.0,
+                score=row[2],
+                summary=row[3],
+                appeal=row[4],
+                prompt_version=row[5],
+            )
+            for row in rows
+        ]
+
+    def save_recommendations(self, recommendations: list[SegmentRecommendation]) -> None:
+        """推薦結果をDBに保存する（UPSERT）"""
+        assert self._conn is not None
+        for rec in recommendations:
+            self._conn.execute(
+                """INSERT INTO segment_recommendations
+                    (segment_id, video_id, score, summary, appeal, prompt_version)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(segment_id, prompt_version)
+                DO UPDATE SET score=excluded.score, summary=excluded.summary,
+                              appeal=excluded.appeal, created_at=CURRENT_TIMESTAMP""",
+                (rec.segment_id, rec.video_id, rec.score, rec.summary, rec.appeal, rec.prompt_version),
+            )
+        self._conn.commit()
+
+    def channel_exists(self, channel_id: str) -> bool:
+        """チャンネルが登録済みかどうか"""
+        row = self._execute(
+            "SELECT 1 FROM channels WHERE channel_id = ?", (channel_id,)
+        ).fetchone()
+        return row is not None

@@ -1,60 +1,49 @@
 """suggest機能の結合テスト"""
 
 import json
-import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
 from click.testing import CliRunner
 
 from kirinuki.cli.main import cli
-from kirinuki.infra.db import DatabaseClient
+from kirinuki.infra.database import Database
 from kirinuki.models.recommendation import SegmentRecommendation
 
 
 def _setup_full_db(tmp_path: Path) -> Path:
     """結合テスト用のフルDBセットアップ"""
+    from datetime import datetime, timezone
+
     db_path = tmp_path / "integration.db"
-    db = DatabaseClient(db_path)
-    conn = sqlite3.connect(str(db_path))
+    db = Database(db_path=db_path, embedding_dimensions=1536)
+    db.initialize()
 
-    # チャンネル
-    conn.execute(
-        "INSERT INTO channels (channel_id, name, url) VALUES (?, ?, ?)",
-        ("UC_INT", "結合テストチャンネル", "https://youtube.com/c/int"),
-    )
+    db.save_channel("UC_INT", "結合テストチャンネル", "https://youtube.com/c/int")
 
-    # 動画3件
     for i in range(3):
-        conn.execute(
-            """INSERT INTO videos (video_id, channel_id, title, published_at,
-               duration_seconds, subtitle_language, is_auto_subtitle)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (
-                f"int_vid{i}",
-                "UC_INT",
-                f"結合テスト動画 {i}",
-                f"2026-02-{10 + i:02d}T20:00:00",
-                7200,
-                "ja",
-                0,
-            ),
+        db.save_video(
+            video_id=f"int_vid{i}",
+            channel_id="UC_INT",
+            title=f"結合テスト動画 {i}",
+            published_at=datetime(2026, 2, 10 + i, 20, 0, 0, tzinfo=timezone.utc),
+            duration_seconds=7200,
+            subtitle_language="ja",
+            is_auto_subtitle=False,
+        )
+        db.save_segments(
+            f"int_vid{i}",
+            [
+                {
+                    "start_ms": j * 120000,
+                    "end_ms": (j + 1) * 120000,
+                    "summary": f"結合テスト話題 {i}-{j}: 面白いエピソード",
+                }
+                for j in range(3)
+            ],
         )
 
-        # 各動画にセグメント3件
-        for j in range(3):
-            conn.execute(
-                "INSERT INTO segments (video_id, start_ms, end_ms, summary) VALUES (?, ?, ?, ?)",
-                (
-                    f"int_vid{i}",
-                    j * 120000,
-                    (j + 1) * 120000,
-                    f"結合テスト話題 {i}-{j}: 面白いエピソード",
-                ),
-            )
-
-    conn.commit()
-    conn.close()
+    db.close()
     return db_path
 
 
@@ -158,14 +147,10 @@ class TestE2EJsonOutput:
 class TestE2EErrorCases:
     def test_zero_archives_shows_error(self, tmp_path: Path) -> None:
         db_path = tmp_path / "empty.db"
-        db = DatabaseClient(db_path)
-        conn = sqlite3.connect(str(db_path))
-        conn.execute(
-            "INSERT INTO channels (channel_id, name, url) VALUES (?, ?, ?)",
-            ("UC_EMPTY", "空", "https://youtube.com/c/empty"),
-        )
-        conn.commit()
-        conn.close()
+        db = Database(db_path=db_path, embedding_dimensions=1536)
+        db.initialize()
+        db.save_channel("UC_EMPTY", "空", "https://youtube.com/c/empty")
+        db.close()
 
         runner = CliRunner()
         with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path):
