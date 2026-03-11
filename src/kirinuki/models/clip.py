@@ -14,7 +14,6 @@ class ClipRequest(BaseModel):
     output_path: Path | None = None
     output_format: str = "mp4"
     cookie_file: Path | None = None
-    temp_dir: Path | None = None
 
     @model_validator(mode="after")
     def validate_time_range(self) -> "ClipRequest":

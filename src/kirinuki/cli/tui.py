@@ -229,6 +229,5 @@ def create_clip_service(config: object) -> object:
     from kirinuki.infra.ytdlp_client import YtdlpClient
 
     ytdlp = YtdlpClient(config)
-    ffmpeg = FfmpegClientImpl()
-    ffmpeg.check_available()
-    return ClipService(ytdlp_client=ytdlp, ffmpeg_client=ffmpeg)
+    FfmpegClientImpl().check_available()
+    return ClipService(ytdlp_client=ytdlp)

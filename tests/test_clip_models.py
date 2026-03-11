@@ -20,7 +20,6 @@ class TestClipRequest:
         assert req.output_format == "mp4"
         assert req.output_path is None
         assert req.cookie_file is None
-        assert req.temp_dir is None
 
     def test_start_only(self) -> None:
         req = ClipRequest(

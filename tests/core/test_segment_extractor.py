@@ -38,10 +38,6 @@ class TestExtractSuccess:
         ytdlp = MagicMock()
         ffmpeg = MagicMock()
         ytdlp.fetch_video_metadata.return_value = _video_meta()
-        downloaded = tmp_path / "temp" / "dQw4w9WgXcQ.mp4"
-        downloaded.parent.mkdir(parents=True, exist_ok=True)
-        downloaded.touch()
-        ytdlp.download_video.return_value = downloaded
 
         service = _make_service(ytdlp=ytdlp, ffmpeg=ffmpeg)
         output = tmp_path / "output.mp4"
@@ -50,7 +46,6 @@ class TestExtractSuccess:
             start_seconds=10.0,
             end_seconds=70.0,
             output_path=output,
-            temp_dir=tmp_path / "temp",
         )
 
         result = service.extract(request)
@@ -62,17 +57,18 @@ class TestExtractSuccess:
         assert result.output_path == output
         ffmpeg.check_available.assert_called_once()
         ytdlp.fetch_video_metadata.assert_called_once_with("dQw4w9WgXcQ")
-        ytdlp.download_video.assert_called_once()
-        ffmpeg.clip.assert_called_once()
+        ytdlp.download_section.assert_called_once_with(
+            "dQw4w9WgXcQ",
+            10.0,
+            70.0,
+            output,
+            cookie_file=None,
+        )
 
     def test_start_only_uses_duration_as_end(self, tmp_path: Path) -> None:
         ytdlp = MagicMock()
         ffmpeg = MagicMock()
         ytdlp.fetch_video_metadata.return_value = _video_meta(duration=120)
-        downloaded = tmp_path / "temp" / "dQw4w9WgXcQ.mp4"
-        downloaded.parent.mkdir(parents=True, exist_ok=True)
-        downloaded.touch()
-        ytdlp.download_video.return_value = downloaded
 
         service = _make_service(ytdlp=ytdlp, ffmpeg=ffmpeg)
         output = tmp_path / "output.mp4"
@@ -80,7 +76,6 @@ class TestExtractSuccess:
             url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
             start_seconds=30.0,
             output_path=output,
-            temp_dir=tmp_path / "temp",
         )
 
         result = service.extract(request)
@@ -91,10 +86,6 @@ class TestExtractSuccess:
         ytdlp = MagicMock()
         ffmpeg = MagicMock()
         ytdlp.fetch_video_metadata.return_value = _video_meta(duration=120)
-        downloaded = tmp_path / "temp" / "dQw4w9WgXcQ.mp4"
-        downloaded.parent.mkdir(parents=True, exist_ok=True)
-        downloaded.touch()
-        ytdlp.download_video.return_value = downloaded
 
         service = _make_service(ytdlp=ytdlp, ffmpeg=ffmpeg)
         output = tmp_path / "output.mp4"
@@ -102,7 +93,6 @@ class TestExtractSuccess:
             url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
             end_seconds=60.0,
             output_path=output,
-            temp_dir=tmp_path / "temp",
         )
 
         result = service.extract(request)
@@ -113,17 +103,12 @@ class TestExtractSuccess:
         ytdlp = MagicMock()
         ffmpeg = MagicMock()
         ytdlp.fetch_video_metadata.return_value = _video_meta()
-        downloaded = tmp_path / "temp" / "dQw4w9WgXcQ.mp4"
-        downloaded.parent.mkdir(parents=True, exist_ok=True)
-        downloaded.touch()
-        ytdlp.download_video.return_value = downloaded
 
         service = _make_service(ytdlp=ytdlp, ffmpeg=ffmpeg)
         request = ClipRequest(
             url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
             start_seconds=10.0,
             end_seconds=70.0,
-            temp_dir=tmp_path / "temp",
         )
 
         result = service.extract(request)
@@ -170,72 +155,11 @@ class TestExtractValidation:
             service.extract(request)
 
 
-class TestCleanup:
-    def test_temp_dir_cleaned_on_success(self, tmp_path: Path) -> None:
-        ytdlp = MagicMock()
-        ffmpeg = MagicMock()
-        ytdlp.fetch_video_metadata.return_value = _video_meta()
-        created_files: list[Path] = []
-
-        def fake_download(video_id, output_dir, cookie_file=None):
-            output_dir.mkdir(parents=True, exist_ok=True)
-            f = output_dir / "dQw4w9WgXcQ.mp4"
-            f.touch()
-            created_files.append(f)
-            return f
-
-        ytdlp.download_video.side_effect = fake_download
-
-        service = _make_service(ytdlp=ytdlp, ffmpeg=ffmpeg)
-        output = tmp_path / "output.mp4"
-        request = ClipRequest(
-            url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-            start_seconds=10.0,
-            end_seconds=70.0,
-            output_path=output,
-        )
-
-        service.extract(request)
-        # ダウンロードされたファイルはクリーンアップされていること
-        assert len(created_files) == 1
-        assert not created_files[0].exists()
-
-    def test_temp_dir_cleaned_on_error(self, tmp_path: Path) -> None:
-        ytdlp = MagicMock()
-        ffmpeg = MagicMock()
-        ytdlp.fetch_video_metadata.return_value = _video_meta()
-
-        def fake_download(video_id, output_dir, cookie_file=None):
-            output_dir.mkdir(parents=True, exist_ok=True)
-            f = output_dir / "dQw4w9WgXcQ.mp4"
-            f.touch()
-            return f
-
-        ytdlp.download_video.side_effect = fake_download
-        ffmpeg.clip.side_effect = RuntimeError("clip failed")
-
-        service = _make_service(ytdlp=ytdlp, ffmpeg=ffmpeg)
-        output = tmp_path / "output.mp4"
-        request = ClipRequest(
-            url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-            start_seconds=10.0,
-            end_seconds=70.0,
-            output_path=output,
-        )
-
-        with pytest.raises(RuntimeError):
-            service.extract(request)
-
-
 class TestCookiePassthrough:
-    def test_cookie_file_passed_to_download(self, tmp_path: Path) -> None:
+    def test_cookie_file_passed_to_download_section(self, tmp_path: Path) -> None:
         ytdlp = MagicMock()
         ffmpeg = MagicMock()
         ytdlp.fetch_video_metadata.return_value = _video_meta()
-        downloaded = tmp_path / "temp" / "dQw4w9WgXcQ.mp4"
-        downloaded.parent.mkdir(parents=True, exist_ok=True)
-        downloaded.touch()
-        ytdlp.download_video.return_value = downloaded
 
         service = _make_service(ytdlp=ytdlp, ffmpeg=ffmpeg)
         cookie = tmp_path / "cookies.txt"
@@ -246,12 +170,13 @@ class TestCookiePassthrough:
             end_seconds=70.0,
             output_path=output,
             cookie_file=cookie,
-            temp_dir=tmp_path / "temp",
         )
 
         service.extract(request)
-        ytdlp.download_video.assert_called_once_with(
+        ytdlp.download_section.assert_called_once_with(
             "dQw4w9WgXcQ",
-            tmp_path / "temp",
+            10.0,
+            70.0,
+            output,
             cookie_file=cookie,
         )
