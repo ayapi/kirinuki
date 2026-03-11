@@ -17,4 +17,4 @@ def create_clip_service(config: AppConfig) -> ClipService:
 
     ytdlp = YtdlpClient(config)
     FfmpegClientImpl().check_available()
-    return _ClipService(ytdlp_client=ytdlp)
+    return _ClipService(ytdlp_client=ytdlp, max_workers=config.max_concurrent_api_calls)
