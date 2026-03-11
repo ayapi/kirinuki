@@ -54,25 +54,25 @@ def suggest(
     db = Database(db_path=db_path, embedding_dimensions=config.embedding_dimensions)
 
     try:
-        db.initialize()
-    except Exception as e:
-        click.echo(f"エラー: データベースの初期化に失敗しました: {e}", err=True)
-        sys.exit(1)
+        try:
+            db.initialize()
+        except Exception as e:
+            click.echo(f"エラー: データベースの初期化に失敗しました: {e}", err=True)
+            sys.exit(1)
 
-    llm = LlmClient(config)
+        llm = LlmClient(config)
 
-    video_ids = list(video_id) if video_id else None
+        video_ids = list(video_id) if video_id else None
 
-    if video_ids:
-        options = SuggestOptions(video_ids=video_ids, count=count, threshold=threshold)
-    else:
-        channel = resolve_channel_id(channel, db)
-        options = SuggestOptions(channel_id=channel, count=count, threshold=threshold)
+        if video_ids:
+            options = SuggestOptions(video_ids=video_ids, count=count, threshold=threshold)
+        else:
+            channel = resolve_channel_id(channel, db)
+            options = SuggestOptions(channel_id=channel, count=count, threshold=threshold)
 
-    service = SuggestService(db=db, llm=llm)
-    formatter = RecommendationFormatter()
+        service = SuggestService(db=db, llm=llm)
+        formatter = RecommendationFormatter()
 
-    try:
         _status("対象動画を選定中...", output_json)
 
         # まず動画一覧を取得して表示
@@ -124,6 +124,8 @@ def suggest(
     except Exception as e:
         click.echo(f"エラー: 予期しないエラーが発生しました: {e}", err=True)
         sys.exit(1)
+    finally:
+        db.close()
 
 
 def _run_tui_flow_suggest(result: object, config: AppConfig) -> None:
