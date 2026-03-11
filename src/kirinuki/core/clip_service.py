@@ -64,7 +64,10 @@ class ClipService:
             outcomes: list[ClipOutcome] = []
 
             for i, time_range in enumerate(request.ranges, 1):
-                filename = build_numbered_filename(request.filename, i, total)
+                if request.filenames:
+                    filename = request.filenames[i - 1]
+                else:
+                    filename = build_numbered_filename(request.filename, i, total)
                 output_path = output_dir / filename
 
                 _notify(f"[{i}/{total}] 切り抜き中...")

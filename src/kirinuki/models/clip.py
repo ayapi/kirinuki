@@ -62,15 +62,18 @@ class TimeRange(BaseModel):
 
 class MultiClipRequest(BaseModel):
     video_id: str
-    filename: str
+    filename: str = "clip"
     output_dir: Path
     ranges: list[TimeRange]
+    filenames: list[str] | None = None
     cookie_file: Path | None = None
 
     @model_validator(mode="after")
     def validate_ranges(self) -> "MultiClipRequest":
         if len(self.ranges) < 1:
             raise ValueError("rangesは1つ以上指定してください")
+        if self.filenames is not None and len(self.filenames) != len(self.ranges):
+            raise ValueError("filenamesの数はrangesの数と一致させてください")
         # 拡張子がなければ .mp4 を付与
         from pathlib import PurePosixPath
 

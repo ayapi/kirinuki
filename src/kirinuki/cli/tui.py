@@ -127,6 +127,7 @@ def execute_clips(
 ) -> list[ClipOutcome]:
     """選択された候補を順次切り抜き実行する。
 
+    同じ動画IDの候補はグルーピングし、動画を1回だけダウンロードする。
     KeyboardInterrupt時は処理済み結果を返す。
     """
     if not selected:
@@ -140,52 +141,83 @@ def execute_clips(
     outcomes: list[ClipOutcome] = []
     interrupted = False
 
-    for i, candidate in enumerate(selected, 1):
+    # video_id でグルーピング（出現順を保持）
+    groups: dict[str, list[ClipCandidate]] = {}
+    for candidate in selected:
+        groups.setdefault(candidate.video_id, []).append(candidate)
+
+    done = 0
+
+    for video_id, candidates in groups.items():
         if interrupted:
             break
 
-        filename = generate_clip_filename(
-            candidate.video_id, candidate.start_ms, candidate.summary
-        )
+        # TimeRange とファイル名を準備
+        group_ranges: list[TimeRange] = []
+        group_filenames: list[str] = []
 
-        start_sec = candidate.start_ms / 1000
-        end_sec = candidate.end_ms / 1000
-        try:
-            time_range = TimeRange(
-                start_seconds=start_sec,
-                end_seconds=end_sec,
+        for candidate in candidates:
+            start_sec = candidate.start_ms / 1000
+            end_sec = candidate.end_ms / 1000
+            try:
+                time_range = TimeRange(
+                    start_seconds=start_sec,
+                    end_seconds=end_sec,
+                )
+            except Exception:
+                done += 1
+                _notify(
+                    f"[{done}/{total}] スキップ（時間範囲が不正: "
+                    f"start_ms={candidate.start_ms}, end_ms={candidate.end_ms}）: "
+                    f"{candidate.summary[:40]}"
+                )
+                continue
+
+            filename = generate_clip_filename(
+                candidate.video_id, candidate.start_ms, candidate.summary
             )
-        except Exception:
-            _notify(
-                f"[{i}/{total}] スキップ（時間範囲が不正: "
-                f"start_ms={candidate.start_ms}, end_ms={candidate.end_ms}）: "
-                f"{candidate.summary[:40]}"
-            )
+            group_ranges.append(time_range)
+            group_filenames.append(filename)
+
+        if not group_ranges:
             continue
 
-        request = MultiClipRequest(
-            video_id=candidate.video_id,
-            filename=filename,
-            output_dir=output_dir,
-            ranges=[time_range],
-        )
+        clip_count = len(group_ranges)
+        if clip_count == 1:
+            _notify(
+                f"[{done + 1}/{total}] 切り抜き中: "
+                f"{candidates[0].summary[:40]}..."
+            )
+        else:
+            _notify(
+                f"[{done + 1}-{done + clip_count}/{total}] "
+                f"動画 {video_id} から {clip_count}件 切り抜き中..."
+            )
 
-        _notify(f"[{i}/{total}] 切り抜き中: {candidate.summary[:40]}...")
+        request = MultiClipRequest(
+            video_id=video_id,
+            output_dir=output_dir,
+            ranges=group_ranges,
+            filenames=group_filenames,
+        )
 
         try:
             result = clip_service.execute(request, on_progress=None)
             outcomes.extend(result.outcomes)
         except KeyboardInterrupt:
-            _notify(f"\n中断しました（{i - 1}/{total}件完了）")
+            _notify(f"\n中断しました（{done}/{total}件完了）")
             interrupted = True
         except Exception as e:
-            outcomes.append(
-                ClipOutcome(
-                    range=time_range,
-                    output_path=None,
-                    error=str(e),
+            for tr in group_ranges:
+                outcomes.append(
+                    ClipOutcome(
+                        range=tr,
+                        output_path=None,
+                        error=str(e),
+                    )
                 )
-            )
+
+        done += clip_count
 
     return outcomes
 
