@@ -271,6 +271,12 @@ class TestIsAuthError:
     def test_join_channel(self, client):
         assert client._is_auth_error("Join this channel to get access") is True
 
+    def test_sign_in_lowercase(self, client):
+        assert client._is_auth_error("please sign in to continue") is True
+
+    def test_join_channel_mixed_case(self, client):
+        assert client._is_auth_error("JOIN THIS CHANNEL to get access") is True
+
     def test_generic_error(self, client):
         assert client._is_auth_error("Video has been removed") is False
 
@@ -667,3 +673,73 @@ class TestAuthenticationWarning:
             client.download_video("vid1", tmp_path)
 
         assert "cookie set" not in str(exc_info.value)
+
+
+class TestDownloadSectionCookie:
+    """download_section()が設定済みcookieを初回から使用することを検証する"""
+
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_config_cookie_used_on_first_attempt(self, mock_ydl_cls, tmp_path):
+        """コンフィグにcookieがある場合、download_sectionの初回リクエストで使用される"""
+        cookie_file = tmp_path / "cookies.txt"
+        cookie_file.write_text("# Netscape cookie file")
+        config = AppConfig(
+            db_path=tmp_path / "data.db",
+            cookie_file_path=cookie_file,
+        )
+        client = YtdlpClient(config)
+
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {"id": "vid1"}
+
+        output_path = tmp_path / "output.mp4"
+        client.download_section("vid1", 0.0, 10.0, output_path)
+
+        call_opts = mock_ydl_cls.call_args[0][0]
+        assert call_opts.get("cookiefile") == str(cookie_file)
+
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_explicit_cookie_takes_precedence(self, mock_ydl_cls, tmp_path):
+        """明示的なcookie_file引数がコンフィグより優先される"""
+        config_cookie = tmp_path / "config_cookies.txt"
+        config_cookie.write_text("# config cookie")
+        explicit_cookie = tmp_path / "explicit_cookies.txt"
+        explicit_cookie.write_text("# explicit cookie")
+        config = AppConfig(
+            db_path=tmp_path / "data.db",
+            cookie_file_path=config_cookie,
+        )
+        client = YtdlpClient(config)
+
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {"id": "vid1"}
+
+        output_path = tmp_path / "output.mp4"
+        client.download_section("vid1", 0.0, 10.0, output_path, cookie_file=explicit_cookie)
+
+        call_opts = mock_ydl_cls.call_args[0][0]
+        assert call_opts.get("cookiefile") == str(explicit_cookie)
+
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_no_cookie_when_not_configured(self, mock_ydl_cls, tmp_path):
+        """cookieが未設定の場合、cookiefileオプションが設定されない"""
+        config = AppConfig(
+            db_path=tmp_path / "data.db",
+            cookie_file_path=tmp_path / "nonexistent_cookies.txt",
+        )
+        client = YtdlpClient(config)
+
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {"id": "vid1"}
+
+        output_path = tmp_path / "output.mp4"
+        client.download_section("vid1", 0.0, 10.0, output_path)
+
+        call_opts = mock_ydl_cls.call_args[0][0]
+        assert "cookiefile" not in call_opts
