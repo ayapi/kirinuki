@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 import anthropic
 from pydantic import BaseModel, Field, ValidationError
@@ -226,6 +227,7 @@ class LlmClient:
             api_key=config.anthropic_api_key,
             max_retries=10,
         )
+        self._max_workers = config.max_concurrent_api_calls
 
     def analyze_topics(self, subtitle_text: str) -> list[TopicSegment]:
         if not subtitle_text.strip():
@@ -252,14 +254,29 @@ class LlmClient:
         segments: list[dict[str, str | int]],
         prompt_version: str,
     ) -> list[SegmentRecommendation]:
-        """動画1本分のセグメントをバッチ分割して評価する"""
-        all_evaluations: list[SegmentEvaluation] = []
+        """動画1本分のセグメントをバッチ分割して並列評価する"""
+        batches = [
+            segments[i : i + BATCH_SIZE]
+            for i in range(0, len(segments), BATCH_SIZE)
+        ]
 
-        for i in range(0, len(segments), BATCH_SIZE):
-            batch = segments[i : i + BATCH_SIZE]
-            batch_result = self._evaluate_batch(batch)
-            if batch_result is not None:
-                all_evaluations.extend(batch_result)
+        all_evaluations: list[SegmentEvaluation] = []
+        if len(batches) <= 1:
+            for batch in batches:
+                batch_result = self._evaluate_batch(batch)
+                if batch_result is not None:
+                    all_evaluations.extend(batch_result)
+        else:
+            workers = min(self._max_workers, len(batches))
+            logger.info(
+                "Evaluating %d batches in parallel (max_workers=%d)",
+                len(batches), workers,
+            )
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                results = list(executor.map(self._evaluate_batch, batches))
+            for batch_result in results:
+                if batch_result is not None:
+                    all_evaluations.extend(batch_result)
 
         return [
             SegmentRecommendation(
