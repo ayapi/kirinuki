@@ -83,7 +83,9 @@ class SuggestService:
         if not self._db.channel_exists(options.channel_id):
             raise ChannelNotFoundError(options.channel_id)
 
-        videos = self._db.get_latest_videos(options.channel_id, options.count)
+        videos = self._db.get_latest_videos(
+            options.channel_id, options.count, until=options.until
+        )
         if not videos:
             raise NoArchivesError(options.channel_id)
         return videos, []

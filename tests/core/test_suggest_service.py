@@ -232,6 +232,79 @@ class TestVideoIdFiltering:
         assert len(result.videos) == 2
 
 
+class TestUntilFiltering:
+    def test_until_passed_to_get_latest_videos(self, tmp_path: Path) -> None:
+        """until指定時にget_latest_videosにuntilが渡される"""
+        db = _setup_db(tmp_path)
+        from datetime import datetime, timezone
+        # broadcast_start_at付きで動画を追加
+        for i in range(3):
+            db.save_video(
+                video_id=f"vid{i:03d}",
+                channel_id="UC123",
+                title=f"テスト動画 {i}",
+                published_at=datetime(2026, 1, i + 1, tzinfo=timezone.utc),
+                duration_seconds=3600,
+                subtitle_language="ja",
+                is_auto_subtitle=False,
+                broadcast_start_at=datetime(2026, 1, i + 1, 20, 0, tzinfo=timezone.utc),
+            )
+        for i in range(3):
+            _add_segments(db, f"vid{i:03d}", 2)
+
+        llm = FakeLLMClient()
+        service = SuggestService(db=db, llm=llm)
+        until = datetime(2026, 1, 2, 23, 59, 59, tzinfo=timezone.utc)
+        opts = SuggestOptions(channel_id="UC123", count=10, threshold=1, until=until)
+        result = service.suggest(opts)
+
+        # vid000 (Jan 1) と vid001 (Jan 2) のみ含まれるべき
+        video_ids = [v.video_id for v in result.videos]
+        assert "vid000" in video_ids
+        assert "vid001" in video_ids
+        assert "vid002" not in video_ids
+
+    def test_until_none_returns_all(self, tmp_path: Path) -> None:
+        """until未指定時は全動画を返す"""
+        db = _setup_db(tmp_path)
+        _add_videos(db, 3)
+        for i in range(3):
+            _add_segments(db, f"vid{i:03d}", 2)
+
+        llm = FakeLLMClient()
+        service = SuggestService(db=db, llm=llm)
+        opts = SuggestOptions(channel_id="UC123", count=10, threshold=1)
+        result = service.suggest(opts)
+        assert len(result.videos) == 3
+
+    def test_video_ids_ignores_until(self, tmp_path: Path) -> None:
+        """video_ids指定時はuntilを無視する"""
+        db = _setup_db(tmp_path)
+        from datetime import datetime, timezone
+        for i in range(3):
+            db.save_video(
+                video_id=f"vid{i:03d}",
+                channel_id="UC123",
+                title=f"テスト動画 {i}",
+                published_at=datetime(2026, 1, i + 1, tzinfo=timezone.utc),
+                duration_seconds=3600,
+                subtitle_language="ja",
+                is_auto_subtitle=False,
+                broadcast_start_at=datetime(2026, 1, i + 1, 20, 0, tzinfo=timezone.utc),
+            )
+        for i in range(3):
+            _add_segments(db, f"vid{i:03d}", 2)
+
+        llm = FakeLLMClient()
+        service = SuggestService(db=db, llm=llm)
+        # until を古い日時に設定しても video_ids 指定なら無視される
+        until = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        opts = SuggestOptions(video_ids=["vid002"], threshold=1, until=until)
+        result = service.suggest(opts)
+        assert len(result.videos) == 1
+        assert result.videos[0].video_id == "vid002"
+
+
 class TestThresholdFiltering:
     def test_all_pass_threshold(self, tmp_path: Path) -> None:
         db = _setup_db(tmp_path)

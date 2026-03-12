@@ -1,6 +1,7 @@
 """切り抜き推薦関連のデータモデル"""
 
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
@@ -24,6 +25,7 @@ class SuggestOptions:
     count: int = 3
     threshold: int = 7
     video_ids: list[str] | None = None
+    until: datetime | None = None
 
 
 @dataclass
