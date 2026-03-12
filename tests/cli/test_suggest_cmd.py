@@ -1,6 +1,7 @@
 """suggest サブコマンドのテスト"""
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -8,6 +9,7 @@ import pytest
 from click.testing import CliRunner
 
 from kirinuki.cli.main import cli
+from kirinuki.cli.suggest import parse_until_datetime
 from kirinuki.infra.database import Database
 from kirinuki.models.recommendation import SegmentRecommendation
 
@@ -177,3 +179,51 @@ class TestSuggestVideoIdOption:
                 "suggest", "--video-id", "MISSING1", "--video-id", "MISSING2",
             ])
         assert result.exit_code != 0
+
+
+class TestParseUntilDatetime:
+    def test_date_only(self) -> None:
+        """YYYY-MM-DD形式は23:59:59として扱う"""
+        dt = parse_until_datetime("2024-06-15")
+        assert dt == datetime(2024, 6, 15, 23, 59, 59)
+
+    def test_date_and_time(self) -> None:
+        """YYYY-MM-DD HH:MM形式が正しくパースされる"""
+        dt = parse_until_datetime("2024-06-15 14:30")
+        assert dt == datetime(2024, 6, 15, 14, 30, 0)
+
+    def test_invalid_format_raises(self) -> None:
+        """無効な形式でclick.BadParameterが送出される"""
+        import click
+        with pytest.raises(click.BadParameter) as exc_info:
+            parse_until_datetime("invalid-date")
+        assert "YYYY-MM-DD" in str(exc_info.value)
+
+
+class TestSuggestUntilOption:
+    def test_until_option_help(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["suggest", "--help"])
+        assert "--until" in result.output
+
+    def test_until_option_with_date(self, tmp_path: Path) -> None:
+        """--until YYYY-MM-DDでフィルタリングが動作する"""
+        db_path = _setup_test_db(tmp_path)
+        runner = CliRunner()
+        with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path), \
+             patch("kirinuki.infra.llm_client.LlmClient.evaluate_segments", side_effect=_fake_evaluate):
+            result = runner.invoke(cli, [
+                "suggest", "UC123", "--until", "2026-01-02", "--threshold", "1",
+            ])
+        assert result.exit_code == 0
+
+    def test_until_invalid_format_error(self, tmp_path: Path) -> None:
+        """無効な--untilフォーマットでエラーメッセージが表示される"""
+        db_path = _setup_test_db(tmp_path)
+        runner = CliRunner()
+        with patch("kirinuki.cli.suggest.get_db_path", return_value=db_path):
+            result = runner.invoke(cli, [
+                "suggest", "UC123", "--until", "not-a-date",
+            ])
+        assert result.exit_code != 0
+        assert "YYYY-MM-DD" in result.output

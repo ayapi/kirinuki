@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -15,6 +16,25 @@ from kirinuki.infra.database import Database
 from kirinuki.infra.llm_client import LlmClient
 from kirinuki.models.config import AppConfig
 from kirinuki.models.recommendation import SuggestOptions
+
+
+def parse_until_datetime(value: str) -> datetime:
+    """'YYYY-MM-DD' または 'YYYY-MM-DD HH:MM' を datetime に変換する。
+
+    日付のみの場合は 23:59:59 として扱う（その日の配信をすべて含む）。
+    パース失敗時は click.BadParameter を送出する。
+    """
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(value, fmt)
+            if fmt == "%Y-%m-%d":
+                dt = dt.replace(hour=23, minute=59, second=59)
+            return dt
+        except ValueError:
+            continue
+    raise click.BadParameter(
+        "無効な日時形式です。YYYY-MM-DD または YYYY-MM-DD HH:MM を指定してください"
+    )
 
 
 def get_db_path() -> Path:
@@ -36,6 +56,7 @@ def _status(msg: str, is_json: bool) -> None:
 @click.option("--json", "output_json", is_flag=True, default=False, help="JSON形式で出力")
 @click.option("--tui", is_flag=True, default=False, help="TUIモードで結果を表示し、切り抜きを実行")
 @click.option("--video-id", multiple=True, default=(), help="絞り込む動画ID（複数指定可）")
+@click.option("--until", "until_str", default=None, help="配信開始日時の上限（YYYY-MM-DD または YYYY-MM-DD HH:MM）")
 def suggest(
     channel: str | None,
     count: int,
@@ -43,6 +64,7 @@ def suggest(
     output_json: bool,
     tui: bool,
     video_id: tuple[str, ...],
+    until_str: str | None,
 ) -> None:
     """チャンネルの最新アーカイブから切り抜き候補を推薦する。
 
@@ -64,11 +86,15 @@ def suggest(
 
         video_ids = list(video_id) if video_id else None
 
+        until = None
+        if until_str is not None:
+            until = parse_until_datetime(until_str)
+
         if video_ids:
-            options = SuggestOptions(video_ids=video_ids, count=count, threshold=threshold)
+            options = SuggestOptions(video_ids=video_ids, count=count, threshold=threshold, until=until)
         else:
             channel = resolve_channel_id(channel, db)
-            options = SuggestOptions(channel_id=channel, count=count, threshold=threshold)
+            options = SuggestOptions(channel_id=channel, count=count, threshold=threshold, until=until)
 
         service = SuggestService(db=db, llm=llm)
         formatter = RecommendationFormatter()
@@ -79,7 +105,7 @@ def suggest(
         if video_ids:
             videos = db.get_videos_by_ids(video_ids)
         else:
-            videos = db.get_latest_videos(channel, count)
+            videos = db.get_latest_videos(channel, count, until=until)
         if videos:
             _status(f"\n対象アーカイブ ({len(videos)}件):", output_json)
             for v in videos:
