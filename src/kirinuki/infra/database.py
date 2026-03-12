@@ -659,12 +659,13 @@ class Database:
     ) -> list[dict[str, str]]:
         """チャンネルの最新N件のアーカイブを配信日時降順で取得する"""
         if until is not None:
-            until_str = until.isoformat()
+            until_str = until.strftime("%Y-%m-%dT%H:%M:%S")
             rows = self._execute(
                 """SELECT video_id, title, published_at, duration_seconds
                    FROM videos
                    WHERE channel_id = ?
-                     AND (broadcast_start_at <= ? OR (broadcast_start_at IS NULL AND published_at <= ?))
+                     AND (substr(broadcast_start_at, 1, 19) <= ?
+                          OR (broadcast_start_at IS NULL AND substr(published_at, 1, 19) <= ?))
                    ORDER BY COALESCE(broadcast_start_at, published_at) DESC
                    LIMIT ?""",
                 (channel_id, until_str, until_str, count),

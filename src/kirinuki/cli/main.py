@@ -392,12 +392,12 @@ def backfill_broadcast_start() -> None:
         skipped = 0
         errors = 0
 
+        ytdlp = YtdlpClient(ctx.config)
+
         for i, video in enumerate(videos, 1):
             video_id = video["video_id"]
             click.echo(f"({i}/{len(videos)}) {video['title']}...", nl=False)
             try:
-                meta = ctx.config  # unused, just to access ytdlp
-                ytdlp = YtdlpClient(ctx.config)
                 meta = ytdlp.fetch_video_metadata(video_id)
                 if meta.broadcast_start_at is not None:
                     ctx.db.update_broadcast_start_at(video_id, meta.broadcast_start_at)
