@@ -371,6 +371,57 @@ def _run_tui_clip_flow(candidates: list, config: AppConfig) -> None:
             click.echo(f"  失敗 ({tr}): {o.error}")
 
 
+@cli.group()
+def migrate() -> None:
+    """データベースマイグレーション"""
+    pass
+
+
+@migrate.command("backfill-broadcast-start")
+def backfill_broadcast_start() -> None:
+    """既存動画の配信開始日時を一括取得・更新する"""
+    with create_app_context() as ctx:
+        videos = ctx.db.get_videos_without_broadcast_start()
+        if not videos:
+            click.echo("対象の動画はありません")
+            return
+
+        click.echo(f"配信開始日時が未設定の動画: {len(videos)}件")
+
+        updated = 0
+        skipped = 0
+        errors = 0
+
+        for i, video in enumerate(videos, 1):
+            video_id = video["video_id"]
+            click.echo(f"({i}/{len(videos)}) {video['title']}...", nl=False)
+            try:
+                meta = ctx.config  # unused, just to access ytdlp
+                ytdlp = YtdlpClient(ctx.config)
+                meta = ytdlp.fetch_video_metadata(video_id)
+                if meta.broadcast_start_at is not None:
+                    ctx.db.update_broadcast_start_at(video_id, meta.broadcast_start_at)
+                    click.echo(" 更新")
+                    updated += 1
+                else:
+                    # フォールバック: published_at を使用
+                    published_at_str = video.get("published_at")
+                    if published_at_str:
+                        from datetime import datetime
+                        fallback = datetime.fromisoformat(published_at_str)
+                        ctx.db.update_broadcast_start_at(video_id, fallback)
+                        click.echo(" 更新 (published_atで代替)")
+                        updated += 1
+                    else:
+                        click.echo(" スキップ (日時情報なし)")
+                        skipped += 1
+            except Exception as e:
+                click.echo(f" エラー: {e}")
+                errors += 1
+
+        click.echo(f"\n完了: 更新 {updated}件 / スキップ {skipped}件 / エラー {errors}件")
+
+
 cli.add_command(cookie_cmd, "cookie")
 cli.add_command(suggest_cmd, "suggest")
 
