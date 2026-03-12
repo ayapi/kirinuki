@@ -202,7 +202,17 @@ kirinuki suggest [channel_id] --json
 |---|---|---|
 | `--count` | 3 | 対象アーカイブ件数 |
 | `--threshold` | 7 | 推薦スコア閾値（1〜10） |
+| `--until` | なし | 配信開始日時の上限（`YYYY-MM-DD` または `YYYY-MM-DD HH:MM`） |
 | `--json` | off | JSON 形式で出力 |
+
+### データベースマイグレーション
+
+```bash
+# 既存動画の配信開始日時を一括取得・更新
+kirinuki migrate backfill-broadcast-start
+```
+
+`--until` オプションで使われる `broadcast_start_at` が未設定の既存動画に対して、YouTube から配信開始日時を取得して DB を更新します。
 
 ## 開発
 
