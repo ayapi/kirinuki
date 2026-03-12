@@ -98,7 +98,7 @@ class TestMigration:
         """2回初期化しても問題ない"""
         db.initialize()
         row = db._execute("SELECT version FROM schema_version").fetchone()
-        assert row[0] == 1
+        assert row[0] == 2
 
     def test_idempotent_schema(self, tmp_path) -> None:
         """ファイルDBでの再初期化が冪等であること"""

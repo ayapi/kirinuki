@@ -1,11 +1,12 @@
 """データベース層のテスト"""
 
+import sqlite3
 import time
 from datetime import datetime, timezone
 
 import pytest
 
-from kirinuki.infra.database import Database
+from kirinuki.infra.database import Database, SCHEMA_VERSION
 from kirinuki.models.domain import SubtitleEntry
 from kirinuki.models.recommendation import SegmentRecommendation
 
@@ -31,7 +32,12 @@ class TestSchema:
     def test_schema_version(self, db: Database) -> None:
         row = db._execute("SELECT version FROM schema_version").fetchone()
         assert row is not None
-        assert row[0] == 1
+        assert row[0] == 2
+
+    def test_videos_table_has_broadcast_start_at(self, db: Database) -> None:
+        columns = db._execute("PRAGMA table_info(videos)").fetchall()
+        column_names = {row[1] for row in columns}
+        assert "broadcast_start_at" in column_names
 
     def test_fts_table_exists(self, db: Database) -> None:
         tables = db._execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
@@ -852,3 +858,170 @@ class TestSegmentRecommendationsSchema:
         indexes = cursor.fetchall()
         index_names = [idx[1] for idx in indexes]
         assert "idx_recommendations_video_id" in index_names
+
+
+class TestMigrationV1ToV2:
+    def test_migrate_v1_to_v2(self, tmp_path) -> None:
+        """v1 DBがv2にマイグレーションされる"""
+        db_path = tmp_path / "test.db"
+        # v1スキーマのDBを手動作成
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS channels (
+                channel_id TEXT PRIMARY KEY, name TEXT NOT NULL,
+                url TEXT NOT NULL, last_synced_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS videos (
+                video_id TEXT PRIMARY KEY,
+                channel_id TEXT NOT NULL REFERENCES channels(channel_id),
+                title TEXT NOT NULL, published_at TEXT,
+                duration_seconds INTEGER NOT NULL,
+                subtitle_language TEXT NOT NULL,
+                is_auto_subtitle INTEGER NOT NULL DEFAULT 0,
+                synced_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY);
+        """)
+        conn.execute("INSERT INTO schema_version (version) VALUES (1)")
+        conn.execute(
+            "INSERT INTO channels VALUES ('UC1', 'Ch1', 'https://youtube.com/c/ch1', NULL)"
+        )
+        conn.execute(
+            "INSERT INTO videos VALUES ('vid1', 'UC1', 'Video 1', '2024-01-01', 3600, 'ja', 0, '2024-01-01')"
+        )
+        conn.commit()
+        conn.close()
+
+        # Database.initialize()でマイグレーション実行
+        db = Database(db_path=db_path, embedding_dimensions=1536)
+        db.initialize()
+
+        # バージョンが2に更新されている
+        row = db._execute("SELECT version FROM schema_version").fetchone()
+        assert row[0] == 2
+
+        # broadcast_start_atカラムが存在する
+        columns = db._execute("PRAGMA table_info(videos)").fetchall()
+        column_names = {r[1] for r in columns}
+        assert "broadcast_start_at" in column_names
+
+        # 既存データのbroadcast_start_atはNULL
+        row = db._execute("SELECT broadcast_start_at FROM videos WHERE video_id='vid1'").fetchone()
+        assert row[0] is None
+        db.close()
+
+
+class TestSaveVideoBroadcastStartAt:
+    def test_save_with_broadcast_start_at(self, db: Database) -> None:
+        """broadcast_start_atが保存される"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        bsa = datetime(2024, 6, 15, 10, 30, 0, tzinfo=timezone.utc)
+        db.save_video(
+            video_id="vid1", channel_id="UC1", title="Video 1",
+            published_at=datetime(2024, 6, 15, tzinfo=timezone.utc),
+            duration_seconds=3600, subtitle_language="ja", is_auto_subtitle=False,
+            broadcast_start_at=bsa,
+        )
+        row = db._execute(
+            "SELECT broadcast_start_at FROM videos WHERE video_id='vid1'"
+        ).fetchone()
+        assert row[0] == bsa.isoformat()
+
+    def test_save_without_broadcast_start_at(self, db: Database) -> None:
+        """broadcast_start_at省略時はNULL"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
+        row = db._execute(
+            "SELECT broadcast_start_at FROM videos WHERE video_id='vid1'"
+        ).fetchone()
+        assert row[0] is None
+
+
+class TestGetLatestVideosUntil:
+    @pytest.fixture
+    def db_with_broadcast(self, db: Database):
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        # 3つの動画: broadcast_start_at付き2つ、NULL1つ
+        db.save_video(
+            "vid1", "UC1", "Video 1",
+            published_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            duration_seconds=3600, subtitle_language="ja", is_auto_subtitle=False,
+            broadcast_start_at=datetime(2024, 1, 1, 20, 0, tzinfo=timezone.utc),
+        )
+        db.save_video(
+            "vid2", "UC1", "Video 2",
+            published_at=datetime(2024, 2, 1, tzinfo=timezone.utc),
+            duration_seconds=3600, subtitle_language="ja", is_auto_subtitle=False,
+            broadcast_start_at=datetime(2024, 2, 1, 20, 0, tzinfo=timezone.utc),
+        )
+        db.save_video(
+            "vid3", "UC1", "Video 3",
+            published_at=datetime(2024, 3, 1, tzinfo=timezone.utc),
+            duration_seconds=3600, subtitle_language="ja", is_auto_subtitle=False,
+        )  # broadcast_start_at=NULL
+        return db
+
+    def test_until_filters_by_broadcast_start_at(self, db_with_broadcast: Database) -> None:
+        """until指定でbroadcast_start_at以前の動画のみ返す"""
+        until = datetime(2024, 1, 31, 23, 59, 59, tzinfo=timezone.utc)
+        result = db_with_broadcast.get_latest_videos("UC1", 10, until=until)
+        ids = [r["video_id"] for r in result]
+        assert "vid1" in ids
+        assert "vid2" not in ids
+
+    def test_until_includes_null_broadcast_with_published_at(self, db_with_broadcast: Database) -> None:
+        """broadcast_start_at=NULLの動画はpublished_atでフィルタされる"""
+        until = datetime(2024, 3, 15, tzinfo=timezone.utc)
+        result = db_with_broadcast.get_latest_videos("UC1", 10, until=until)
+        ids = [r["video_id"] for r in result]
+        assert "vid3" in ids  # NULL broadcast but published_at <= until
+
+    def test_without_until_returns_all(self, db_with_broadcast: Database) -> None:
+        """until未指定時は全動画を返す"""
+        result = db_with_broadcast.get_latest_videos("UC1", 10)
+        assert len(result) == 3
+
+    def test_sort_order_uses_coalesce(self, db_with_broadcast: Database) -> None:
+        """COALESCE(broadcast_start_at, published_at)降順でソートされる"""
+        result = db_with_broadcast.get_latest_videos("UC1", 10)
+        # vid3: COALESCE(NULL, 2024-03-01) = 2024-03-01
+        # vid2: COALESCE(2024-02-01T20:00, ...) = 2024-02-01T20:00
+        # vid1: COALESCE(2024-01-01T20:00, ...) = 2024-01-01T20:00
+        ids = [r["video_id"] for r in result]
+        assert ids == ["vid3", "vid2", "vid1"]
+
+
+class TestBackfillMethods:
+    def test_get_videos_without_broadcast_start(self, db: Database) -> None:
+        """broadcast_start_atがNULLの動画のみ返す"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_video(
+            "vid1", "UC1", "Video 1", None, 3600, "ja", False,
+            broadcast_start_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        )
+        db.save_video("vid2", "UC1", "Video 2", None, 3600, "ja", False)
+        result = db.get_videos_without_broadcast_start()
+        ids = [r["video_id"] for r in result]
+        assert ids == ["vid2"]
+
+    def test_get_videos_without_broadcast_start_empty(self, db: Database) -> None:
+        """全動画にbroadcast_start_atが設定済みの場合は空リスト"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_video(
+            "vid1", "UC1", "Video 1", None, 3600, "ja", False,
+            broadcast_start_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        )
+        result = db.get_videos_without_broadcast_start()
+        assert result == []
+
+    def test_update_broadcast_start_at(self, db: Database) -> None:
+        """broadcast_start_atを更新できる"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
+        bsa = datetime(2024, 6, 15, 10, 0, 0, tzinfo=timezone.utc)
+        db.update_broadcast_start_at("vid1", bsa)
+        row = db._execute(
+            "SELECT broadcast_start_at FROM videos WHERE video_id='vid1'"
+        ).fetchone()
+        assert row[0] == bsa.isoformat()

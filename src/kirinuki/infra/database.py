@@ -19,7 +19,7 @@ from kirinuki.models.domain import (
 )
 from kirinuki.models.recommendation import SegmentRecommendation
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS channels (
@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS videos (
     duration_seconds INTEGER NOT NULL,
     subtitle_language TEXT NOT NULL,
     is_auto_subtitle INTEGER NOT NULL DEFAULT 0,
-    synced_at TEXT NOT NULL
+    synced_at TEXT NOT NULL,
+    broadcast_start_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_videos_channel ON videos(channel_id);
 
@@ -171,6 +172,8 @@ class Database:
         row = self._conn.execute("SELECT version FROM schema_version").fetchone()
         if row is None:
             self._conn.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
+        elif row[0] < SCHEMA_VERSION:
+            self._migrate_to_latest(row[0])
 
         self._conn.commit()
 
@@ -178,6 +181,18 @@ class Database:
         if self._conn:
             self._conn.close()
             self._conn = None
+
+    def _migrate_to_latest(self, current_version: int) -> None:
+        """現在のバージョンから最新バージョンまでマイグレーションを実行する。"""
+        assert self._conn is not None
+        if current_version < 2:
+            self._migrate_v1_to_v2()
+
+    def _migrate_v1_to_v2(self) -> None:
+        """v1→v2: videos テーブルに broadcast_start_at カラムを追加する。"""
+        assert self._conn is not None
+        self._conn.execute("ALTER TABLE videos ADD COLUMN broadcast_start_at TEXT")
+        self._conn.execute("UPDATE schema_version SET version = 2")
 
     def _execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         assert self._conn is not None
@@ -245,13 +260,14 @@ class Database:
         duration_seconds: int,
         subtitle_language: str,
         is_auto_subtitle: bool,
+        broadcast_start_at: datetime | None = None,
     ) -> None:
         assert self._conn is not None
         self._conn.execute(
             """INSERT OR IGNORE INTO videos
                (video_id, channel_id, title, published_at, duration_seconds,
-                subtitle_language, is_auto_subtitle, synced_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                subtitle_language, is_auto_subtitle, synced_at, broadcast_start_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 video_id,
                 channel_id,
@@ -261,6 +277,7 @@ class Database:
                 subtitle_language,
                 int(is_auto_subtitle),
                 datetime.now(tz=timezone.utc).isoformat(),
+                broadcast_start_at.isoformat() if broadcast_start_at else None,
             ),
         )
         self._auto_commit()
@@ -637,16 +654,30 @@ class Database:
 
     # --- Suggest 機能用メソッド ---
 
-    def get_latest_videos(self, channel_id: str, count: int) -> list[dict[str, str]]:
+    def get_latest_videos(
+        self, channel_id: str, count: int, until: datetime | None = None,
+    ) -> list[dict[str, str]]:
         """チャンネルの最新N件のアーカイブを配信日時降順で取得する"""
-        rows = self._execute(
-            """SELECT video_id, title, published_at, duration_seconds
-               FROM videos
-               WHERE channel_id = ?
-               ORDER BY published_at DESC
-               LIMIT ?""",
-            (channel_id, count),
-        ).fetchall()
+        if until is not None:
+            until_str = until.isoformat()
+            rows = self._execute(
+                """SELECT video_id, title, published_at, duration_seconds
+                   FROM videos
+                   WHERE channel_id = ?
+                     AND (broadcast_start_at <= ? OR (broadcast_start_at IS NULL AND published_at <= ?))
+                   ORDER BY COALESCE(broadcast_start_at, published_at) DESC
+                   LIMIT ?""",
+                (channel_id, until_str, until_str, count),
+            ).fetchall()
+        else:
+            rows = self._execute(
+                """SELECT video_id, title, published_at, duration_seconds
+                   FROM videos
+                   WHERE channel_id = ?
+                   ORDER BY COALESCE(broadcast_start_at, published_at) DESC
+                   LIMIT ?""",
+                (channel_id, count),
+            ).fetchall()
         return [
             {
                 "video_id": row[0],
@@ -739,6 +770,34 @@ class Database:
                 (rec.segment_id, rec.video_id, rec.score, rec.summary, rec.appeal, rec.prompt_version)
                 for rec in recommendations
             ],
+        )
+        self._auto_commit()
+
+    def get_videos_without_broadcast_start(self) -> list[dict[str, str]]:
+        """broadcast_start_at が未設定の動画一覧を返す"""
+        rows = self._execute(
+            """SELECT video_id, title, published_at, duration_seconds
+               FROM videos
+               WHERE broadcast_start_at IS NULL"""
+        ).fetchall()
+        return [
+            {
+                "video_id": row[0],
+                "title": row[1],
+                "published_at": row[2],
+                "duration_seconds": row[3],
+            }
+            for row in rows
+        ]
+
+    def update_broadcast_start_at(
+        self, video_id: str, broadcast_start_at: datetime
+    ) -> None:
+        """動画の broadcast_start_at を更新する"""
+        assert self._conn is not None
+        self._conn.execute(
+            "UPDATE videos SET broadcast_start_at = ? WHERE video_id = ?",
+            (broadcast_start_at.isoformat(), video_id),
         )
         self._auto_commit()
 
