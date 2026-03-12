@@ -152,6 +152,41 @@ class TestFetchVideoMetadata:
         assert meta.live_status is None
 
 
+class TestFetchVideoMetadataBroadcastStartAt:
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_release_timestamp_extracted(self, mock_ydl_cls, client):
+        """release_timestampがbroadcast_start_atに変換される"""
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {
+            "id": "vid1",
+            "title": "Live Stream",
+            "upload_date": "20240615",
+            "duration": 7200,
+            "live_status": "was_live",
+            "release_timestamp": 1718467200,  # 2024-06-15T16:00:00Z
+        }
+        meta = client.fetch_video_metadata("vid1")
+        assert meta.broadcast_start_at is not None
+        assert meta.broadcast_start_at == datetime(2024, 6, 15, 16, 0, 0, tzinfo=timezone.utc)
+
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_no_release_timestamp_returns_none(self, mock_ydl_cls, client):
+        """release_timestampがない場合broadcast_start_atはNone"""
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_ydl.extract_info.return_value = {
+            "id": "vid1",
+            "title": "Regular Video",
+            "upload_date": "20240101",
+            "duration": 600,
+        }
+        meta = client.fetch_video_metadata("vid1")
+        assert meta.broadcast_start_at is None
+
+
 class TestFetchSubtitle:
     @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
     def test_fetch_json3_subtitle_from_file(self, mock_ydl_cls, client, tmp_path):

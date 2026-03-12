@@ -37,6 +37,7 @@ class VideoMeta:
     published_at: datetime | None
     duration_seconds: int
     live_status: str | None = None
+    broadcast_start_at: datetime | None = None
 
 
 @dataclass
@@ -168,12 +169,18 @@ class YtdlpClient:
                 )
             except ValueError:
                 pass
+        broadcast_start_at = None
+        release_ts = info.get("release_timestamp")
+        if release_ts is not None:
+            broadcast_start_at = datetime.fromtimestamp(release_ts, tz=timezone.utc)
+
         return VideoMeta(
             video_id=info["id"],
             title=info.get("title", ""),
             published_at=published_at,
             duration_seconds=int(info.get("duration", 0)),
             live_status=info.get("live_status"),
+            broadcast_start_at=broadcast_start_at,
         )
 
     def fetch_subtitle(
