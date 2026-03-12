@@ -1,5 +1,6 @@
 """差分同期サービスのテスト"""
 
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -430,6 +431,44 @@ class TestRetrySegmentation:
 
         result = service.sync_all()
         assert result.segmentation_retried == 2
+
+
+class TestSyncBroadcastStartAt:
+    def test_broadcast_start_at_saved(self, service, mock_ytdlp, mock_segmentation, db):
+        """broadcast_start_atがDBに保存される"""
+        bsa = datetime(2024, 6, 15, 16, 0, 0, tzinfo=timezone.utc)
+        mock_ytdlp.list_channel_video_ids.return_value = ["vid1"]
+        mock_ytdlp.fetch_video_metadata.return_value = VideoMeta(
+            video_id="vid1", title="Live", published_at=datetime(2024, 6, 15, tzinfo=timezone.utc),
+            duration_seconds=7200, live_status="was_live", broadcast_start_at=bsa,
+        )
+        mock_ytdlp.fetch_subtitle.return_value = (SubtitleData(
+            video_id="vid1", language="ja", is_auto_generated=False,
+            entries=[SubtitleEntry(start_ms=0, duration_ms=5000, text="テスト")],
+        ), None)
+        mock_segmentation.segment_video_from_entries.return_value = []
+
+        service.sync_channel("UC1")
+        row = db._execute("SELECT broadcast_start_at FROM videos WHERE video_id='vid1'").fetchone()
+        assert row[0] == bsa.isoformat()
+
+    def test_broadcast_start_at_fallback_to_published_at(self, service, mock_ytdlp, mock_segmentation, db):
+        """broadcast_start_atがNoneの場合published_atがフォールバックとして使用される"""
+        pub = datetime(2024, 6, 15, tzinfo=timezone.utc)
+        mock_ytdlp.list_channel_video_ids.return_value = ["vid1"]
+        mock_ytdlp.fetch_video_metadata.return_value = VideoMeta(
+            video_id="vid1", title="Video", published_at=pub,
+            duration_seconds=3600, broadcast_start_at=None,
+        )
+        mock_ytdlp.fetch_subtitle.return_value = (SubtitleData(
+            video_id="vid1", language="ja", is_auto_generated=False,
+            entries=[SubtitleEntry(start_ms=0, duration_ms=5000, text="テスト")],
+        ), None)
+        mock_segmentation.segment_video_from_entries.return_value = []
+
+        service.sync_channel("UC1")
+        row = db._execute("SELECT broadcast_start_at FROM videos WHERE video_id='vid1'").fetchone()
+        assert row[0] == pub.isoformat()
 
 
 class TestSyncAll:

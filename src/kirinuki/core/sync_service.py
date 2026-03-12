@@ -163,6 +163,7 @@ class SyncService:
             duration_seconds=meta.duration_seconds,
             subtitle_language=subtitle_data.language,
             is_auto_subtitle=subtitle_data.is_auto_generated,
+            broadcast_start_at=meta.broadcast_start_at or meta.published_at,
         )
 
         # 字幕行をDBに保存
