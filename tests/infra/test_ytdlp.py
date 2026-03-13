@@ -724,12 +724,18 @@ class TestDownloadSectionCookie:
         )
         client = YtdlpClient(config)
 
+        output_path = tmp_path / "output.mp4"
+
         mock_ydl = MagicMock()
         mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
         mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
-        mock_ydl.extract_info.return_value = {"id": "vid1"}
 
-        output_path = tmp_path / "output.mp4"
+        def _fake_download(*args, **kwargs):
+            output_path.write_bytes(b"\x00" * 8)
+            return {"id": "vid1"}
+
+        mock_ydl.extract_info.side_effect = _fake_download
+
         client.download_section("vid1", 0.0, 10.0, output_path)
 
         call_opts = mock_ydl_cls.call_args[0][0]
@@ -748,12 +754,18 @@ class TestDownloadSectionCookie:
         )
         client = YtdlpClient(config)
 
+        output_path = tmp_path / "output.mp4"
+
         mock_ydl = MagicMock()
         mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
         mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
-        mock_ydl.extract_info.return_value = {"id": "vid1"}
 
-        output_path = tmp_path / "output.mp4"
+        def _fake_download(*args, **kwargs):
+            output_path.write_bytes(b"\x00" * 8)
+            return {"id": "vid1"}
+
+        mock_ydl.extract_info.side_effect = _fake_download
+
         client.download_section("vid1", 0.0, 10.0, output_path, cookie_file=explicit_cookie)
 
         call_opts = mock_ydl_cls.call_args[0][0]
@@ -768,12 +780,18 @@ class TestDownloadSectionCookie:
         )
         client = YtdlpClient(config)
 
+        output_path = tmp_path / "output.mp4"
+
         mock_ydl = MagicMock()
         mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
         mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
-        mock_ydl.extract_info.return_value = {"id": "vid1"}
 
-        output_path = tmp_path / "output.mp4"
+        def _fake_download(*args, **kwargs):
+            output_path.write_bytes(b"\x00" * 8)
+            return {"id": "vid1"}
+
+        mock_ydl.extract_info.side_effect = _fake_download
+
         client.download_section("vid1", 0.0, 10.0, output_path)
 
         call_opts = mock_ydl_cls.call_args[0][0]

@@ -98,22 +98,25 @@ class TestDownloadSection:
     def test_download_section_success(
         self, mock_ydl_cls: MagicMock, client: YtdlpClient, tmp_path: Path
     ) -> None:
+        output_path = tmp_path / "clip.mp4"
+
         mock_ydl = MagicMock()
         mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
         mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
-        mock_ydl.extract_info.return_value = {"id": "vid1"}
 
-        output_path = tmp_path / "clip.mp4"
-        # Simulate file creation by yt-dlp
-        output_path.touch()
+        def _fake_download(*args, **kwargs):
+            output_path.write_bytes(b"\x00" * 8)
+            return {"id": "vid1"}
+
+        mock_ydl.extract_info.side_effect = _fake_download
 
         result = client.download_section("vid1", 60.0, 120.0, output_path)
         assert result == output_path
 
-        # Verify download_ranges was set in options
         call_args = mock_ydl_cls.call_args[0][0]
         assert "download_ranges" in call_args
         assert call_args.get("format_sort") == ["proto:https"]
+        assert call_args.get("merge_output_format") == "mp4"
 
     @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
     def test_download_section_with_cookie(
@@ -124,18 +127,57 @@ class TestDownloadSection:
         config = AppConfig(db_path=tmp_path / "data.db")
         c = YtdlpClient(config)
 
+        output_path = tmp_path / "clip.mp4"
+
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        def _fake_download(*args, **kwargs):
+            output_path.write_bytes(b"\x00" * 8)
+            return {"id": "vid1"}
+
+        mock_ydl.extract_info.side_effect = _fake_download
+
+        c.download_section("vid1", 60.0, 120.0, output_path, cookie_file=cookie_file)
+
+        call_args = mock_ydl_cls.call_args[0][0]
+        assert call_args.get("cookiefile") == str(cookie_file)
+
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_download_section_validates_missing_file(
+        self, mock_ydl_cls: MagicMock, client: YtdlpClient, tmp_path: Path
+    ) -> None:
+        """ダウンロード後にファイルが存在しない場合エラー"""
         mock_ydl = MagicMock()
         mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
         mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
         mock_ydl.extract_info.return_value = {"id": "vid1"}
 
         output_path = tmp_path / "clip.mp4"
-        output_path.touch()
 
-        c.download_section("vid1", 60.0, 120.0, output_path, cookie_file=cookie_file)
+        with pytest.raises(VideoDownloadError, match="存在しません"):
+            client.download_section("vid1", 60.0, 120.0, output_path)
 
-        call_args = mock_ydl_cls.call_args[0][0]
-        assert call_args.get("cookiefile") == str(cookie_file)
+    @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
+    def test_download_section_validates_empty_file(
+        self, mock_ydl_cls: MagicMock, client: YtdlpClient, tmp_path: Path
+    ) -> None:
+        """ダウンロード後にファイルが空の場合エラー"""
+        output_path = tmp_path / "clip.mp4"
+
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        def _fake_download(*args, **kwargs):
+            output_path.touch()
+            return {"id": "vid1"}
+
+        mock_ydl.extract_info.side_effect = _fake_download
+
+        with pytest.raises(VideoDownloadError, match="空です"):
+            client.download_section("vid1", 60.0, 120.0, output_path)
 
     @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
     def test_download_section_failure(

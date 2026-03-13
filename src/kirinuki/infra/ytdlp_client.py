@@ -479,6 +479,7 @@ class YtdlpClient:
                 "/bestvideo*+bestaudio*/best*"
             ),
             "format_sort": ["proto:https"],
+            "merge_output_format": "mp4",
             "download_ranges": download_range_func(
                 None, [(start_seconds, end_seconds)]
             ),
@@ -506,6 +507,7 @@ class YtdlpClient:
                 lambda: self._download_section_with_cookie(opts, url, output_path),
             )
 
+        self._validate_output(output_path)
         return output_path
 
     def _download_section_with_cookie(
@@ -529,7 +531,20 @@ class YtdlpClient:
                 "認証が必要です。Cookieを更新してください"
                 f" (`kirinuki cookie set`): {msg}"
             ) from e
+        self._validate_output(output_path)
         return output_path
+
+    @staticmethod
+    def _validate_output(output_path: Path) -> None:
+        """ダウンロード後のファイルが存在し空でないことを検証する。"""
+        if not output_path.exists():
+            raise VideoDownloadError(
+                f"ダウンロードファイルが存在しません: {output_path}"
+            )
+        if output_path.stat().st_size == 0:
+            raise VideoDownloadError(
+                f"ダウンロードファイルが空です: {output_path}"
+            )
 
     def resolve_channel_name(self, channel_url: str) -> tuple[str, str]:
         """チャンネルURLからチャンネルIDと名前を取得する"""

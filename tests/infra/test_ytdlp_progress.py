@@ -19,16 +19,26 @@ def client(tmp_path: Path) -> YtdlpClient:
 
 
 class TestDownloadSectionOnProgress:
+    @staticmethod
+    def _setup_mock(mock_ydl_cls: MagicMock, output_path: Path) -> MagicMock:
+        mock_ydl = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        def _fake_download(*args, **kwargs):
+            output_path.write_bytes(b"\x00" * 8)
+            return {"id": "vid1"}
+
+        mock_ydl.extract_info.side_effect = _fake_download
+        return mock_ydl
+
     @patch("kirinuki.infra.ytdlp_client.yt_dlp.YoutubeDL")
     def test_progress_hooks_set_when_on_progress_provided(
         self, mock_ydl_cls: MagicMock, client: YtdlpClient, tmp_path: Path
     ) -> None:
         """on_progress指定時にprogress_hooksが設定される"""
-        mock_ydl = MagicMock()
-        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
-        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
-
         output_path = tmp_path / "clip.mp4"
+        self._setup_mock(mock_ydl_cls, output_path)
         callback = MagicMock()
 
         client.download_section(
@@ -44,11 +54,8 @@ class TestDownloadSectionOnProgress:
         self, mock_ydl_cls: MagicMock, client: YtdlpClient, tmp_path: Path
     ) -> None:
         """on_progress未指定時にprogress_hooksが設定されない"""
-        mock_ydl = MagicMock()
-        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
-        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
-
         output_path = tmp_path / "clip.mp4"
+        self._setup_mock(mock_ydl_cls, output_path)
 
         client.download_section("vid1", 60.0, 120.0, output_path)
 
@@ -60,11 +67,8 @@ class TestDownloadSectionOnProgress:
         self, mock_ydl_cls: MagicMock, client: YtdlpClient, tmp_path: Path
     ) -> None:
         """progress_hooksに設定されたフック関数がcallbackにdictを転送する"""
-        mock_ydl = MagicMock()
-        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
-        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
-
         output_path = tmp_path / "clip.mp4"
+        self._setup_mock(mock_ydl_cls, output_path)
         callback = MagicMock()
 
         client.download_section(
@@ -90,11 +94,8 @@ class TestDownloadSectionOnProgress:
         self, mock_ydl_cls: MagicMock, client: YtdlpClient, tmp_path: Path
     ) -> None:
         """cookie_file引数とon_progressを同時に指定できる"""
-        mock_ydl = MagicMock()
-        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl)
-        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
-
         output_path = tmp_path / "clip.mp4"
+        self._setup_mock(mock_ydl_cls, output_path)
         cookie_file = tmp_path / "cookies.txt"
         cookie_file.write_text("# Netscape cookie file")
         callback = MagicMock()
