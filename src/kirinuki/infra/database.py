@@ -803,11 +803,16 @@ class Database:
         self._auto_commit()
 
     def get_all_videos(self, count: int) -> list[VideoSummary]:
-        """全チャンネルの動画をcount件、配信日時降順で取得する。"""
+        """全チャンネルの動画をcount件、配信日時降順で取得する。
+
+        published_atにはCOALESCE(broadcast_start_at, published_at)の値を返す。
+        """
         rows = self._execute(
-            """SELECT video_id, title, published_at, duration_seconds
+            """SELECT video_id, title,
+                      COALESCE(broadcast_start_at, published_at) as effective_date,
+                      duration_seconds
                FROM videos
-               ORDER BY COALESCE(broadcast_start_at, published_at) DESC
+               ORDER BY effective_date DESC
                LIMIT ?""",
             (count,),
         ).fetchall()

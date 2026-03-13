@@ -423,7 +423,7 @@ def backfill_broadcast_start() -> None:
 
 
 @cli.command()
-@click.option("--count", default=20, show_default=True, help="表示件数")
+@click.option("--count", default=20, show_default=True, type=click.IntRange(min=1), help="表示件数")
 @click.option("--tui", is_flag=True, default=False, help="TUIモードで動画を選択し、segments/suggestを実行")
 def videos(count: int, tui: bool) -> None:
     """全チャンネル横断で動画一覧を表示する"""
@@ -481,7 +481,7 @@ def _run_tui_flow_videos(all_videos: list, ctx: AppContext) -> None:
 
         llm = LlmClient(ctx.config)
         service = SuggestService(db=ctx.db, llm=llm)
-        options = SuggestOptions(video_ids=[video_id], count=1, threshold=1)
+        options = SuggestOptions(video_ids=[video_id], count=1, threshold=7)
         result = service.suggest(options)
 
         if not result.videos:

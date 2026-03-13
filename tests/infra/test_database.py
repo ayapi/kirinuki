@@ -1060,6 +1060,16 @@ class TestGetAllVideos:
         assert result[1].video_id == "vid2"  # 2024-02-15T20:00
         assert result[2].video_id == "vid1"  # 2024-01-10T20:00
 
+    def test_published_at_uses_coalesce(self, db_with_multi_channel: Database) -> None:
+        """published_atにCOALESCE(broadcast_start_at, published_at)の値が返る"""
+        result = db_with_multi_channel.get_all_videos(count=10)
+        # vid2: broadcast_start_at=2024-02-15T20:00 が返る（published_atではなく）
+        vid2 = [v for v in result if v.video_id == "vid2"][0]
+        assert vid2.published_at == datetime(2024, 2, 15, 20, 0, tzinfo=timezone.utc)
+        # vid3: broadcast_start_at=NULL → published_at=2024-03-20 が返る
+        vid3 = [v for v in result if v.video_id == "vid3"][0]
+        assert vid3.published_at == datetime(2024, 3, 20, 0, 0, tzinfo=timezone.utc)
+
     def test_count_limits_results(self, db_with_multi_channel: Database) -> None:
         """count指定で取得件数が制限される"""
         result = db_with_multi_channel.get_all_videos(count=2)
