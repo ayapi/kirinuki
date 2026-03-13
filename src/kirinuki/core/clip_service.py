@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Protocol
 
-from kirinuki.core.clip_utils import build_numbered_filename
+from kirinuki.core.clip_utils import build_numbered_filename, prepend_datetime_prefix
 from kirinuki.core.errors import AuthenticationRequiredError
 from kirinuki.models.clip import (
     ClipOutcome,
@@ -101,6 +101,9 @@ class ClipService:
                 filename = build_numbered_filename(
                     request.filename, index + 1, total
                 )
+            filename = prepend_datetime_prefix(
+                filename, request.broadcast_start_at
+            )
             output_path = output_dir / filename
 
             def _ytdlp_hook(d: dict) -> None:

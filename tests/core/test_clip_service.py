@@ -2,6 +2,7 @@
 
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, call
 
@@ -224,6 +225,86 @@ class TestClipServiceExecute:
         assert first_output == tmp_path / "video1.mp4"
         second_output = calls[1][0][3]
         assert second_output == tmp_path / "video2.mp4"
+
+
+class TestClipServiceDatetimePrefix:
+    def test_broadcast_start_at_adds_prefix(
+        self, service: ClipService, mock_ytdlp: MagicMock, tmp_path: Path
+    ) -> None:
+        """broadcast_start_at付きリクエストで日時プレフィックスが付与される"""
+        dt = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)  # JST 21:00
+        request = MultiClipRequest(
+            video_id="dQw4w9WgXcQ",
+            filename="動画.mp4",
+            output_dir=tmp_path,
+            ranges=[TimeRange(start_seconds=60.0, end_seconds=120.0)],
+            broadcast_start_at=dt,
+        )
+
+        service.execute(request)
+
+        call_args = mock_ytdlp.download_section.call_args
+        output_path_arg = call_args[0][3]
+        assert output_path_arg == tmp_path / "20260310_2100_動画.mp4"
+
+    def test_broadcast_start_at_none_no_prefix(
+        self, service: ClipService, mock_ytdlp: MagicMock, tmp_path: Path
+    ) -> None:
+        """broadcast_start_at=Noneの場合プレフィックスなし"""
+        request = MultiClipRequest(
+            video_id="dQw4w9WgXcQ",
+            filename="動画.mp4",
+            output_dir=tmp_path,
+            ranges=[TimeRange(start_seconds=60.0, end_seconds=120.0)],
+        )
+
+        service.execute(request)
+
+        call_args = mock_ytdlp.download_section.call_args
+        output_path_arg = call_args[0][3]
+        assert output_path_arg == tmp_path / "動画.mp4"
+
+    def test_broadcast_start_at_with_numbered_filenames(
+        self, service: ClipService, mock_ytdlp: MagicMock, tmp_path: Path
+    ) -> None:
+        """連番+日時プレフィックスの組み合わせ"""
+        dt = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)
+        request = MultiClipRequest(
+            video_id="dQw4w9WgXcQ",
+            filename="動画.mp4",
+            output_dir=tmp_path,
+            ranges=[
+                TimeRange(start_seconds=60.0, end_seconds=120.0),
+                TimeRange(start_seconds=180.0, end_seconds=240.0),
+            ],
+            broadcast_start_at=dt,
+        )
+
+        service.execute(request)
+
+        calls = mock_ytdlp.download_section.call_args_list
+        paths = sorted([c[0][3] for c in calls], key=lambda p: str(p))
+        assert tmp_path / "20260310_2100_動画1.mp4" in paths
+        assert tmp_path / "20260310_2100_動画2.mp4" in paths
+
+    def test_filenames_list_with_broadcast_start_at(
+        self, service: ClipService, mock_ytdlp: MagicMock, tmp_path: Path
+    ) -> None:
+        """filenames リスト指定時にも日時プレフィックスが付与される"""
+        dt = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)
+        request = MultiClipRequest(
+            video_id="dQw4w9WgXcQ",
+            output_dir=tmp_path,
+            ranges=[TimeRange(start_seconds=60.0, end_seconds=120.0)],
+            filenames=["custom_name.mp4"],
+            broadcast_start_at=dt,
+        )
+
+        service.execute(request)
+
+        call_args = mock_ytdlp.download_section.call_args
+        output_path_arg = call_args[0][3]
+        assert output_path_arg == tmp_path / "20260310_2100_custom_name.mp4"
 
 
 class TestClipServiceReencode:
