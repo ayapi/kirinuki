@@ -422,6 +422,77 @@ def backfill_broadcast_start() -> None:
         click.echo(f"\n完了: 更新 {updated}件 / スキップ {skipped}件 / エラー {errors}件")
 
 
+@cli.command()
+@click.option("--count", default=20, show_default=True, help="表示件数")
+@click.option("--tui", is_flag=True, default=False, help="TUIモードで動画を選択し、segments/suggestを実行")
+def videos(count: int, tui: bool) -> None:
+    """全チャンネル横断で動画一覧を表示する"""
+    with create_app_context() as ctx:
+        all_videos = ctx.db.get_all_videos(count=count)
+        if not all_videos:
+            click.echo("動画が登録されていません")
+            return
+
+        if tui:
+            _run_tui_flow_videos(all_videos, ctx)
+            return
+
+        for v in all_videos:
+            date = v.published_at.strftime("%Y-%m-%d %H:%M") if v.published_at else "不明"
+            url = f"https://www.youtube.com/watch?v={v.video_id}"
+            click.echo(f"  [{date}] {v.title}")
+            click.echo(f"     {url}")
+
+
+def _run_tui_flow_videos(all_videos: list, ctx: AppContext) -> None:
+    """videos TUIモード: 動画選択 → 操作選択 → 既存TUIフロー実行"""
+    from kirinuki.cli.tui import run_tui_select_one
+
+    options = [
+        f"[{v.published_at.strftime('%Y-%m-%d %H:%M') if v.published_at else '不明'}] {v.title}"
+        for v in all_videos
+    ]
+    selected_idx = run_tui_select_one(options)
+    if selected_idx is None:
+        click.echo("キャンセルしました")
+        return
+
+    selected_video = all_videos[selected_idx]
+    video_id = selected_video.video_id
+
+    # 操作選択メニュー
+    action_idx = run_tui_select_one(["segments - 話題セグメント一覧", "suggest - 切り抜き候補推薦"])
+    if action_idx is None:
+        click.echo("キャンセルしました")
+        return
+
+    if action_idx == 0:
+        # segments
+        segs = ctx.segmentation_service.list_segments(video_id)
+        if not segs:
+            click.echo("セグメントはありません")
+            return
+        _run_tui_flow_segments(segs, ctx.config)
+    else:
+        # suggest
+        from kirinuki.core.suggest import SuggestService
+        from kirinuki.infra.llm_client import LlmClient
+        from kirinuki.models.recommendation import SuggestOptions
+
+        llm = LlmClient(ctx.config)
+        service = SuggestService(db=ctx.db, llm=llm)
+        options = SuggestOptions(video_ids=[video_id], count=1, threshold=1)
+        result = service.suggest(options)
+
+        if not result.videos:
+            click.echo("推薦候補はありません")
+            return
+
+        from kirinuki.cli.suggest import _run_tui_flow_suggest
+
+        _run_tui_flow_suggest(result, ctx.config)
+
+
 cli.add_command(cookie_cmd, "cookie")
 cli.add_command(suggest_cmd, "suggest")
 
