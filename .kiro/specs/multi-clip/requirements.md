@@ -37,6 +37,18 @@
 2. When 単一の時間範囲が指定された場合, the CLI shall 連番を付与せずそのままのファイル名を使用する（例: `動画.mp4`）
 3. The CLI shall ファイル名の拡張子の前に連番を挿入する
 
+### Requirement 6: 出力ファイル名への配信開始日時プレフィックス
+
+**Objective:** ユーザーとして、出力ファイル名の先頭に配信開始日時が自動で付与されてほしい。そうすれば、ファイル名だけでどの配信の切り抜きか一目でわかり、時系列で整理しやすい。
+
+#### Acceptance Criteria
+1. The ClipService shall 出力ファイル名の先頭に動画の配信開始日時を `YYYYMMDD_HHMM_` 形式（現地時間）でプレフィックスとして付与する（例: `動画.mp4` → `20260310_2100_動画.mp4`）
+2. When 配信開始日時（`broadcast_start_at`）が取得できない場合, the ClipService shall 公開日（`published_at`）にフォールバックしてプレフィックスを生成する（時刻部分は `0000` とする）
+3. When 自動生成ファイル名（TUI・suggestコマンド経由）の場合, the ClipService shall 同様に配信開始日時プレフィックスを付与する（例: `20260310_2100_dQw4w9WgXcQ-18m03s-面白い話題.mp4`）
+4. When 連番が付与される場合, the ClipService shall 日時プレフィックスの後にファイル名本体と連番を配置する（例: `20260310_2100_動画1.mp4`, `20260310_2100_動画2.mp4`）
+5. When ユーザーが指定したファイル名に既に `YYYYMMDD_HHMM_` 形式の日時プレフィックスが含まれている場合, the ClipService shall 重複してプレフィックスを付与しない
+6. The ClipService shall 配信開始日時のタイムゾーンをJST（Asia/Tokyo）として扱い、現地時間で表示する
+
 ### Requirement 4: 出力先ディレクトリの設定
 
 **Objective:** ユーザーとして、切り抜き動画の出力先ディレクトリを設定ファイルであらかじめ指定しておきたい。そうすれば、毎回出力先を指定する手間が省ける。

@@ -79,3 +79,53 @@
   - 不正な時間範囲が指定された場合にエラーメッセージが表示されることを検証する
   - 複数範囲の処理後にサマリーが表示されることを検証する
   - _Requirements: 1.1, 1.4, 4.2, 5.3_
+
+- [ ] 7. 日時プレフィックスのユーティリティ関数とモデル拡張
+- [ ] 7.1 (P) 日時プレフィックス生成・付与・重複検出の関数を追加
+  - 配信開始日時（UTC or tz-aware）をJST（Asia/Tokyo）に変換し `YYYYMMDD_HHMM_` 形式の文字列を生成してファイル名の先頭に付与する関数を実装する
+  - 配信開始日時が None の場合はファイル名をそのまま返す
+  - ファイル名が既に `YYYYMMDD_HHMM_` 形式のプレフィックスを持つかを正規表現で判定する関数を実装する
+  - プレフィックスが既に存在する場合は重複付与せずそのまま返す
+  - _Requirements: 6.1, 6.2, 6.5, 6.6_
+
+- [ ] 7.2 (P) MultiClipRequest に配信開始日時フィールドを追加
+  - MultiClipRequest モデルに `broadcast_start_at`（datetime | None、デフォルト None）フィールドを追加する
+  - 既存のバリデーションや他フィールドへの影響がないことを確認する
+  - _Requirements: 6.1_
+
+- [ ] 8. ClipService のファイル名構築に日時プレフィックスを適用
+  - ClipService がファイル名を構築する際に、連番付与後に日時プレフィックス関数を呼び出してプレフィックスを付与する
+  - `filenames` リスト指定時（TUI経由）も各ファイル名に対して同様にプレフィックスを適用する
+  - `broadcast_start_at` が None の場合はプレフィックスなしで従来通り動作する
+  - タスク 7.1, 7.2 に依存する
+  - _Requirements: 6.1, 6.3, 6.4_
+
+- [ ] 9. CLI・TUI での配信開始日時の取得と受け渡し
+- [ ] 9.1 (P) CLI clip コマンドでメタデータを取得し broadcast_start_at を設定
+  - clip コマンド実行時に YtdlpClient.fetch_video_metadata() で動画のメタデータを取得する
+  - broadcast_start_at を取得し、未取得の場合は published_at にフォールバックする
+  - メタデータ取得失敗時はワーニングを表示し broadcast_start_at=None で処理を続行する
+  - 取得した日時を MultiClipRequest の broadcast_start_at に設定する
+  - タスク 8 に依存する
+  - _Requirements: 6.1, 6.2_
+
+- [ ] 9.2 (P) TUI execute_clips でメタデータを取得し broadcast_start_at を設定
+  - TUI の execute_clips で各動画グループの処理前に fetch_video_metadata() を呼び出す
+  - broadcast_start_at（フォールバック: published_at）を MultiClipRequest に設定する
+  - メタデータ取得失敗時はワーニングを表示し broadcast_start_at=None で続行する
+  - タスク 8 に依存する
+  - _Requirements: 6.1, 6.2, 6.3_
+
+- [ ] 10. 日時プレフィックス機能のテスト
+- [ ] 10.1 (P) ユーティリティ関数のユニットテスト
+  - UTC の datetime を渡した場合に JST 変換された `YYYYMMDD_HHMM_` プレフィックスが付与されることを検証する
+  - broadcast_start_at が None の場合にプレフィックスなしのファイル名がそのまま返ることを検証する
+  - 既にプレフィックスが付いたファイル名に対して重複付与されないことを検証する
+  - 日時プレフィックスと連番の組み合わせ（例: `20260310_2100_動画1.mp4`）が正しいことを検証する
+  - _Requirements: 6.1, 6.2, 6.4, 6.5, 6.6_
+
+- [ ] 10.2 (P) ClipService のインテグレーションテスト
+  - broadcast_start_at 付きの MultiClipRequest で execute() を呼び出し、出力ファイル名に日時プレフィックスが付与されることを検証する
+  - broadcast_start_at=None の場合にプレフィックスなしで出力されることを検証する
+  - filenames リスト指定時にも各ファイル名にプレフィックスが付与されることを検証する
+  - _Requirements: 6.1, 6.3, 6.4_

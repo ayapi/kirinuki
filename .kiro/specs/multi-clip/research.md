@@ -87,11 +87,27 @@
 - **Selected Approach**: Click の位置引数3つ + `--output-dir` オプション
 - **Rationale**: ユーザーのフィードバックに忠実。シンプルで直感的
 
+### 出力ファイル名への配信開始日時プレフィックス
+- **Context**: Requirement 6 — 出力ファイル名の先頭に `YYYYMMDD_HHMM_` 形式で配信開始日時（JST）を付与する
+- **Findings**:
+  - `broadcast_start_at` は `VideoMeta` の `release_timestamp`（UNIXタイムスタンプ、UTC）から取得。DBにもISO形式で保存済み
+  - `published_at` は `upload_date`（YYYYMMDD形式、UTCの日付のみ）から取得。時刻情報なし
+  - フォールバック時（`published_at` のみ）は時刻が `0000` となるのが自然
+  - CLI clipコマンドではDBアクセスなしで `fetch_video_metadata()` を呼ぶのが最もシンプル
+  - TUI経由の `execute_clips()` では各 video_id ごとにメタデータ取得が必要
+  - `zoneinfo.ZoneInfo("Asia/Tokyo")` で JST 変換（Python 3.9+ 標準ライブラリ）
+- **Design Decision**:
+  - プレフィックス付与は `ClipService` がファイル名構築時に行う（全経路で一貫した挙動を保証）
+  - `MultiClipRequest` に `broadcast_start_at: datetime | None` フィールドを追加
+  - CLI/TUI が `fetch_video_metadata()` から取得して `MultiClipRequest` に設定
+  - `clip_utils.py` に `prepend_datetime_prefix()` と `has_datetime_prefix()` を追加
+
 ## Risks & Mitigations
 - yt-dlp `download_range_func` のAPI変更 → `YtdlpClient` のラッパー層で吸収。テストでAPI互換性を検証
 - HLS形式での空ファイル生成 → `format_sort: ['proto:https']` でDASH優先。フォールバックとして丸ごとDL方式を検討
 - 時間範囲文字列に不正文字が含まれる場合 → バリデーション段階で全範囲を検証し、不正があれば処理前にエラー
 - 出力ディレクトリの権限不足 → ディレクトリ作成時にOSError をキャッチして報告
+- メタデータ取得失敗 → `broadcast_start_at=None` で続行。プレフィックスなしのファイル名で出力（切り抜き自体は中断しない）
 
 ## References
 - [yt-dlp GitHub リポジトリ](https://github.com/yt-dlp/yt-dlp) — `download_ranges` ドキュメント
