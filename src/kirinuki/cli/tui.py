@@ -6,8 +6,10 @@ search/segments/suggestの結果をインタラクティブなメニューで表
 
 from __future__ import annotations
 
+import logging
 import sys
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -19,6 +21,8 @@ from kirinuki.models.clip import ClipOutcome, MultiClipRequest, TimeRange
 from kirinuki.models.domain import MatchType, SearchResult, Segment
 from kirinuki.models.recommendation import SuggestResult
 from kirinuki.models.tui import ClipCandidate
+
+logger = logging.getLogger(__name__)
 
 
 def adapt_search_results(results: list[SearchResult]) -> list[ClipCandidate]:
@@ -148,11 +152,17 @@ def execute_clips(
     clip_service: object,
     output_dir: Path,
     on_progress: Callable[[str], None] | None = None,
+    *,
+    ytdlp_client: object | None = None,
 ) -> list[ClipOutcome]:
     """選択された候補を順次切り抜き実行する。
 
     同じ動画IDの候補はグルーピングし、動画を1回だけダウンロードする。
     KeyboardInterrupt時は処理済み結果を返す。
+
+    Args:
+        ytdlp_client: メタデータ取得用。指定時はbroadcast_start_atを取得して
+            日時プレフィックスを付与する。
     """
     if not selected:
         return []
@@ -160,6 +170,16 @@ def execute_clips(
     def _notify(msg: str) -> None:
         if on_progress:
             on_progress(msg)
+
+    def _fetch_broadcast_start_at(vid: str) -> datetime | None:
+        if ytdlp_client is None:
+            return None
+        try:
+            meta = ytdlp_client.fetch_video_metadata(vid)
+            return meta.broadcast_start_at or meta.published_at
+        except Exception as e:
+            logger.warning("メタデータ取得に失敗しました (%s): %s", vid, e)
+            return None
 
     total = len(selected)
     outcomes: list[ClipOutcome] = []
@@ -218,11 +238,14 @@ def execute_clips(
                 f"動画 {video_id} から {clip_count}件 切り抜き中..."
             )
 
+        broadcast_start_at = _fetch_broadcast_start_at(video_id)
+
         request = MultiClipRequest(
             video_id=video_id,
             output_dir=output_dir,
             ranges=group_ranges,
             filenames=group_filenames,
+            broadcast_start_at=broadcast_start_at,
         )
 
         renderer = ProgressRenderer(

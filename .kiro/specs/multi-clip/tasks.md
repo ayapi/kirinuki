@@ -109,7 +109,7 @@
   - タスク 8 に依存する
   - _Requirements: 6.1, 6.2_
 
-- [ ] 9.2 (P) TUI execute_clips でメタデータを取得し broadcast_start_at を設定
+- [x] 9.2 (P) TUI execute_clips でメタデータを取得し broadcast_start_at を設定
   - TUI の execute_clips で各動画グループの処理前に fetch_video_metadata() を呼び出す
   - broadcast_start_at（フォールバック: published_at）を MultiClipRequest に設定する
   - メタデータ取得失敗時はワーニングを表示し broadcast_start_at=None で続行する

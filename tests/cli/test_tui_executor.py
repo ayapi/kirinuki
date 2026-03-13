@@ -1,5 +1,6 @@
 """TUIクリップ実行機能のユニットテスト"""
 
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -186,3 +187,100 @@ class TestExecuteClips:
         call_args = mock_service.execute.call_args
         request = call_args[0][0]
         assert request.filenames == ["dQw4w9WgXcQ-18m03s-面白い話題.mp4"]
+
+
+class TestExecuteClipsBroadcastStartAt:
+    def test_broadcast_start_at_from_ytdlp_client(self) -> None:
+        """ytdlp_client指定時にbroadcast_start_atがリクエストに設定される"""
+        dt = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)
+        candidate = _make_candidate()
+        mock_service = MagicMock()
+        mock_service.execute.return_value = MultiClipResult(
+            video_id="dQw4w9WgXcQ",
+            outcomes=[
+                ClipOutcome(
+                    range=TimeRange(start_seconds=60.0, end_seconds=120.0),
+                    output_path=Path("/tmp/out.mp4"),
+                )
+            ],
+        )
+        mock_ytdlp = MagicMock()
+        mock_ytdlp.fetch_video_metadata.return_value = MagicMock(
+            broadcast_start_at=dt,
+            published_at=None,
+        )
+
+        execute_clips(
+            [candidate], mock_service, Path("/tmp/out"),
+            ytdlp_client=mock_ytdlp,
+        )
+        request = mock_service.execute.call_args[0][0]
+        assert request.broadcast_start_at == dt
+
+    def test_fallback_to_published_at(self) -> None:
+        """broadcast_start_atがNoneの場合、published_atにフォールバック"""
+        dt = datetime(2026, 3, 10, 0, 0, tzinfo=timezone.utc)
+        candidate = _make_candidate()
+        mock_service = MagicMock()
+        mock_service.execute.return_value = MultiClipResult(
+            video_id="dQw4w9WgXcQ",
+            outcomes=[
+                ClipOutcome(
+                    range=TimeRange(start_seconds=60.0, end_seconds=120.0),
+                    output_path=Path("/tmp/out.mp4"),
+                )
+            ],
+        )
+        mock_ytdlp = MagicMock()
+        mock_ytdlp.fetch_video_metadata.return_value = MagicMock(
+            broadcast_start_at=None,
+            published_at=dt,
+        )
+
+        execute_clips(
+            [candidate], mock_service, Path("/tmp/out"),
+            ytdlp_client=mock_ytdlp,
+        )
+        request = mock_service.execute.call_args[0][0]
+        assert request.broadcast_start_at == dt
+
+    def test_no_ytdlp_client_no_prefix(self) -> None:
+        """ytdlp_client未指定時はbroadcast_start_at=None"""
+        candidate = _make_candidate()
+        mock_service = MagicMock()
+        mock_service.execute.return_value = MultiClipResult(
+            video_id="dQw4w9WgXcQ",
+            outcomes=[
+                ClipOutcome(
+                    range=TimeRange(start_seconds=60.0, end_seconds=120.0),
+                    output_path=Path("/tmp/out.mp4"),
+                )
+            ],
+        )
+
+        execute_clips([candidate], mock_service, Path("/tmp/out"))
+        request = mock_service.execute.call_args[0][0]
+        assert request.broadcast_start_at is None
+
+    def test_metadata_failure_continues(self) -> None:
+        """メタデータ取得失敗時もbroadcast_start_at=Noneで続行"""
+        candidate = _make_candidate()
+        mock_service = MagicMock()
+        mock_service.execute.return_value = MultiClipResult(
+            video_id="dQw4w9WgXcQ",
+            outcomes=[
+                ClipOutcome(
+                    range=TimeRange(start_seconds=60.0, end_seconds=120.0),
+                    output_path=Path("/tmp/out.mp4"),
+                )
+            ],
+        )
+        mock_ytdlp = MagicMock()
+        mock_ytdlp.fetch_video_metadata.side_effect = RuntimeError("error")
+
+        execute_clips(
+            [candidate], mock_service, Path("/tmp/out"),
+            ytdlp_client=mock_ytdlp,
+        )
+        request = mock_service.execute.call_args[0][0]
+        assert request.broadcast_start_at is None

@@ -344,6 +344,7 @@ def _run_tui_clip_flow(candidates: list, config: AppConfig) -> None:
     """TUI選択→切り抜き実行の共通フロー"""
     from kirinuki.cli.factory import create_clip_service
     from kirinuki.cli.tui import execute_clips, run_tui_select
+    from kirinuki.infra.ytdlp_client import YtdlpClient
 
     selected = run_tui_select(candidates)
     if not selected:
@@ -351,8 +352,10 @@ def _run_tui_clip_flow(candidates: list, config: AppConfig) -> None:
         return
 
     clip_service = create_clip_service(config)
+    ytdlp = YtdlpClient(config)
     outcomes = execute_clips(
-        selected, clip_service, config.output_dir, on_progress=click.echo
+        selected, clip_service, config.output_dir, on_progress=click.echo,
+        ytdlp_client=ytdlp,
     )
 
     # サマリー表示
