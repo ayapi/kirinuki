@@ -179,6 +179,9 @@ def execute_clips(
             return meta.broadcast_start_at or meta.published_at
         except Exception as e:
             logger.warning("メタデータ取得に失敗しました (%s): %s", vid, e)
+            _notify(
+                f"警告: メタデータ取得に失敗しました（日時プレフィックスなしで続行）: {e}"
+            )
             return None
 
     total = len(selected)

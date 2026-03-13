@@ -234,6 +234,9 @@ def prepend_datetime_prefix(
         return filename
     if has_datetime_prefix(filename):
         return filename
+    # naive datetimeはUTCとして扱う
+    if broadcast_start_at.tzinfo is None:
+        broadcast_start_at = broadcast_start_at.replace(tzinfo=timezone.utc)
     jst_dt = broadcast_start_at.astimezone(_JST)
     prefix = jst_dt.strftime("%Y%m%d_%H%M_")
     return f"{prefix}{filename}"

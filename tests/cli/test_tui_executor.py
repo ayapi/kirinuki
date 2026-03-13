@@ -277,10 +277,14 @@ class TestExecuteClipsBroadcastStartAt:
         )
         mock_ytdlp = MagicMock()
         mock_ytdlp.fetch_video_metadata.side_effect = RuntimeError("error")
+        progress_messages: list[str] = []
 
         execute_clips(
             [candidate], mock_service, Path("/tmp/out"),
+            on_progress=progress_messages.append,
             ytdlp_client=mock_ytdlp,
         )
         request = mock_service.execute.call_args[0][0]
         assert request.broadcast_start_at is None
+        # ユーザーに警告が表示されること
+        assert any("警告" in msg for msg in progress_messages)

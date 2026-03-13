@@ -69,6 +69,12 @@ class TestPrependDatetimePrefix:
         result = prepend_datetime_prefix("clip.mp4", dt)
         assert result == "20260311_0500_clip.mp4"
 
+    def test_naive_datetime_treated_as_utc(self) -> None:
+        """naive datetimeはUTCとして扱われJST変換される"""
+        dt = datetime(2026, 3, 10, 12, 0)  # naive
+        result = prepend_datetime_prefix("clip.mp4", dt)
+        assert result == "20260310_2100_clip.mp4"
+
     def test_auto_generated_filename(self) -> None:
         """TUI/suggest経由の自動生成ファイル名にもプレフィックスが付与される"""
         dt = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)
