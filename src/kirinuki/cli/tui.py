@@ -6,11 +6,13 @@ search/segments/suggestの結果をインタラクティブなメニューで表
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
 import click
 
+from kirinuki.cli.progress_renderer import ProgressRenderer
 from kirinuki.core.clip_utils import extract_video_id, generate_clip_filename
 from kirinuki.core.formatter import format_time_range
 from kirinuki.models.clip import ClipOutcome, MultiClipRequest, TimeRange
@@ -223,8 +225,13 @@ def execute_clips(
             filenames=group_filenames,
         )
 
+        renderer = ProgressRenderer(
+            total=len(group_ranges), output=sys.stderr
+        )
         try:
-            result = clip_service.execute(request, on_progress=None)
+            result = clip_service.execute(
+                request, on_progress=renderer.update
+            )
             outcomes.extend(result.outcomes)
         except KeyboardInterrupt:
             _notify(f"\n中断しました（{done}/{total}件完了）")
@@ -238,6 +245,8 @@ def execute_clips(
                         error=str(e),
                     )
                 )
+        finally:
+            renderer.finish()
 
         done += clip_count
 

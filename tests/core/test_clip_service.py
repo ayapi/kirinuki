@@ -79,11 +79,13 @@ class TestClipServiceExecute:
         self, service: ClipService, mock_ytdlp: MagicMock, tmp_path: Path
     ) -> None:
         """3範囲中1つのdownload_sectionが失敗、残り2つは成功"""
-        mock_ytdlp.download_section.side_effect = [
-            None,
-            VideoDownloadError("ダウンロードエラー"),
-            None,
-        ]
+
+        def _fail_on_second_range(*args, **kwargs):
+            # start_seconds=180.0 の範囲（index 1）のみ失敗
+            if args[1] == 180.0:
+                raise VideoDownloadError("ダウンロードエラー")
+
+        mock_ytdlp.download_section.side_effect = _fail_on_second_range
 
         request = MultiClipRequest(
             video_id="dQw4w9WgXcQ",

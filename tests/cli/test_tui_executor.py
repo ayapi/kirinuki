@@ -6,7 +6,13 @@ from unittest.mock import MagicMock
 import pytest
 
 from kirinuki.cli.tui import execute_clips
-from kirinuki.models.clip import ClipOutcome, MultiClipResult, TimeRange
+from kirinuki.models.clip import (
+    ClipOutcome,
+    ClipPhase,
+    ClipProgress,
+    MultiClipResult,
+    TimeRange,
+)
 from kirinuki.models.tui import ClipCandidate
 
 
@@ -143,6 +149,25 @@ class TestExecuteClips:
         assert len(outcomes) == 1
         assert outcomes[0].error == "network error"
         assert outcomes[0].output_path is None
+
+    def test_clip_service_receives_progress_callback(self) -> None:
+        """clip_service.executeにClipProgress用コールバックが渡される"""
+        candidate = _make_candidate()
+        mock_service = MagicMock()
+        mock_service.execute.return_value = MultiClipResult(
+            video_id="dQw4w9WgXcQ",
+            outcomes=[
+                ClipOutcome(
+                    range=TimeRange(start_seconds=60.0, end_seconds=120.0),
+                    output_path=Path("/tmp/out.mp4"),
+                )
+            ],
+        )
+
+        execute_clips([candidate], mock_service, Path("/tmp/out"))
+
+        call_args = mock_service.execute.call_args
+        assert call_args.kwargs.get("on_progress") is not None
 
     def test_filename_uses_generate_clip_filename(self) -> None:
         candidate = _make_candidate(start_ms=1083000, end_ms=1200000, summary="面白い話題")

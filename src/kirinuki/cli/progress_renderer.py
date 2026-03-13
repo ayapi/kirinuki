@@ -3,9 +3,33 @@
 import os
 import sys
 import threading
+import time
 from typing import TextIO
 
 from kirinuki.models.clip import ClipPhase, ClipProgress
+
+
+def _detect_tty(output: TextIO) -> bool:
+    """出力先がターミナルかどうかを判定する。
+
+    MSYS2/MinTTYではisatty()がFalseを返すため、
+    MSYSTEM環境変数とTERM環境変数で補完判定する。
+
+    Note: MSYS2フォールバックは標準ストリーム（stdout/stderr）のみに適用。
+    シェルリダイレクト（2>file）時はTERMが維持されるためANSIが混入しうるが、
+    MinTTYのpty判定にはWindows API（名前付きパイプ検査）が必要で過度に複雑。
+    """
+    if hasattr(output, "isatty") and output.isatty():
+        return True
+    # MSYS2フォールバックは標準ストリームのみに適用
+    if output not in (sys.stdout, sys.stderr):
+        return False
+    # MSYS2/MinTTY: isatty()=False だが実際はターミナル接続
+    msystem = os.environ.get("MSYSTEM")
+    term = os.environ.get("TERM", "")
+    if msystem and term and term != "dumb":
+        return True
+    return False
 
 
 def _enable_windows_vt() -> None:
@@ -34,10 +58,13 @@ def _format_eta(seconds: int) -> str:
 class ProgressRenderer:
     """複数クリップの進捗をANSIエスケープで描画する。"""
 
+    _SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    _SPIN_INTERVAL = 0.12  # seconds
+
     def __init__(self, total: int, output: TextIO = sys.stderr) -> None:
         self._total = total
         self._output = output
-        self._is_tty: bool = hasattr(output, "isatty") and output.isatty()
+        self._is_tty: bool = _detect_tty(output)
         if self._is_tty:
             _enable_windows_vt()
         self._states: dict[int, ClipProgress] = {}
@@ -45,18 +72,27 @@ class ProgressRenderer:
         self._lines_written: int = 0
         self._finished: bool = False
         self._lock = threading.Lock()
+        self._spinner_idx: int = 0
+        self._spinner_thread: threading.Thread | None = None
 
-    def _format_line(self, progress: ClipProgress) -> str:
+    def _current_spinner(self) -> str:
+        return self._SPINNER_FRAMES[self._spinner_idx % len(self._SPINNER_FRAMES)]
+
+    def _format_line(
+        self, progress: ClipProgress, spinner_char: str = ""
+    ) -> str:
         """ClipProgressから1行の進捗文字列を生成する。"""
         if progress.phase == ClipPhase.DONE:
             return "完了"
-        if progress.phase == ClipPhase.REENCODING:
-            return "再エンコード中..."
         if progress.phase == ClipPhase.ERROR:
             return "エラー"
 
+        s = f"{spinner_char} " if spinner_char else ""
+        if progress.phase == ClipPhase.REENCODING:
+            return f"{s}再エンコード中..."
+
         # DOWNLOADING
-        parts: list[str] = ["ダウンロード中"]
+        parts: list[str] = [f"{s}ダウンロード中"]
 
         if progress.percent is not None:
             parts.append(f"{progress.percent:.1f}%")
@@ -76,6 +112,25 @@ class ProgressRenderer:
             parts.append(f"ETA {_format_eta(progress.eta)}")
 
         return " | ".join(parts)
+
+    def _start_spinner(self) -> None:
+        """スピナースレッドを開始する（まだ開始していなければ）。"""
+        if self._spinner_thread is not None:
+            return
+
+        def _spin() -> None:
+            while not self._finished:
+                time.sleep(self._SPIN_INTERVAL)
+                with self._lock:
+                    if self._finished:
+                        break
+                    self._spinner_idx += 1
+                    if self._states:
+                        self._render()
+
+        t = threading.Thread(target=_spin, daemon=True)
+        t.start()
+        self._spinner_thread = t
 
     def update(self, progress: ClipProgress) -> None:
         """進捗を更新して再描画する。"""
@@ -97,6 +152,8 @@ class ProgressRenderer:
             self._states[progress.clip_index] = progress
             self._render()
 
+        self._start_spinner()
+
     def _render(self) -> None:
         """現在の状態をターミナルに描画する。"""
         # 初回描画時にカーソルを非表示にする
@@ -108,12 +165,13 @@ class ProgressRenderer:
             self._output.write(f"\033[{self._lines_written}A")
 
         lines: list[str] = []
+        spin = self._current_spinner()
 
         if self._total == 1:
             # 単一クリップ: 1行のみ
             if self._states:
                 p = next(iter(self._states.values()))
-                lines.append(self._format_line(p))
+                lines.append(self._format_line(p, spinner_char=spin))
         else:
             # マルチクリップ: ヘッダー + 処理中クリップ
             lines.append(f"[{self._completed}/{self._total}] 完了")
@@ -121,7 +179,9 @@ class ProgressRenderer:
                 p = self._states[idx]
                 if p.phase in (ClipPhase.DONE, ClipPhase.ERROR):
                     continue
-                lines.append(f"  #{idx + 1} {self._format_line(p)}")
+                lines.append(
+                    f"  #{idx + 1} {self._format_line(p, spinner_char=spin)}"
+                )
 
         # 各行をクリアして書き込み
         buf = ""
@@ -142,6 +202,7 @@ class ProgressRenderer:
             return
 
         with self._lock:
+            self._finished = True
             if self._lines_written > 0:
                 self._output.write(f"\033[{self._lines_written}A")
                 for _ in range(self._lines_written):
@@ -151,4 +212,8 @@ class ProgressRenderer:
             self._output.write("\033[?25h")
             self._output.flush()
             self._lines_written = 0
-            self._finished = True
+
+        # スピナースレッドの停止を待つ
+        if self._spinner_thread is not None:
+            self._spinner_thread.join(timeout=1.0)
+            self._spinner_thread = None

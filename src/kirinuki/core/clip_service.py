@@ -109,6 +109,9 @@ class ClipService:
                     _notify(p)
 
             try:
+                _notify(
+                    ClipProgress(clip_index=index, phase=ClipPhase.DOWNLOADING)
+                )
                 self._ytdlp.download_section(
                     request.video_id,
                     time_range.start_seconds,

@@ -43,9 +43,53 @@ class TestClipProgressCallback:
         progress_calls: list[ClipProgress] = []
         service.execute(request, on_progress=lambda p: progress_calls.append(p))
 
-        # Should have at least reencoding and done phases
-        assert len(progress_calls) >= 2
+        # Should have downloading, reencoding, and done phases
+        assert len(progress_calls) >= 3
         assert all(isinstance(p, ClipProgress) for p in progress_calls)
+
+    def test_downloading_phase_emitted_before_download(
+        self, mock_ytdlp: MagicMock, mock_ffmpeg: MagicMock, tmp_path: Path
+    ) -> None:
+        """download_section呼び出し前にDOWNLOADINGフェーズが通知される"""
+        service = ClipService(
+            ytdlp_client=mock_ytdlp, ffmpeg_client=mock_ffmpeg, max_workers=4
+        )
+        request = MultiClipRequest(
+            video_id="vid1",
+            filename="clip.mp4",
+            output_dir=tmp_path,
+            ranges=[TimeRange(start_seconds=60.0, end_seconds=120.0)],
+        )
+
+        progress_calls: list[ClipProgress] = []
+        service.execute(request, on_progress=lambda p: progress_calls.append(p))
+
+        # First notification should be DOWNLOADING
+        assert progress_calls[0].phase == ClipPhase.DOWNLOADING
+        assert progress_calls[0].clip_index == 0
+
+    def test_phase_order_downloading_reencoding_done(
+        self, mock_ytdlp: MagicMock, mock_ffmpeg: MagicMock, tmp_path: Path
+    ) -> None:
+        """フェーズ順序: DOWNLOADING → REENCODING → DONE"""
+        service = ClipService(
+            ytdlp_client=mock_ytdlp, ffmpeg_client=mock_ffmpeg, max_workers=4
+        )
+        request = MultiClipRequest(
+            video_id="vid1",
+            filename="clip.mp4",
+            output_dir=tmp_path,
+            ranges=[TimeRange(start_seconds=60.0, end_seconds=120.0)],
+        )
+
+        progress_calls: list[ClipProgress] = []
+        service.execute(request, on_progress=lambda p: progress_calls.append(p))
+
+        phases = [p.phase for p in progress_calls]
+        dl_idx = phases.index(ClipPhase.DOWNLOADING)
+        re_idx = phases.index(ClipPhase.REENCODING)
+        done_idx = phases.index(ClipPhase.DONE)
+        assert dl_idx < re_idx < done_idx
 
     def test_reencoding_phase_emitted(
         self, mock_ytdlp: MagicMock, mock_ffmpeg: MagicMock, tmp_path: Path
@@ -141,8 +185,11 @@ class TestClipProgressCallback:
         service.execute(request, on_progress=lambda p: progress_calls.append(p))
 
         downloading = [p for p in progress_calls if p.phase == ClipPhase.DOWNLOADING]
-        assert len(downloading) >= 1
-        p = downloading[0]
+        assert len(downloading) >= 2  # 初期通知 + yt-dlpフック由来
+        # yt-dlpフック由来のもの（バイト情報あり）を検証
+        detailed = [p for p in downloading if p.downloaded_bytes is not None]
+        assert len(detailed) >= 1
+        p = detailed[0]
         assert p.clip_index == 0
         assert p.downloaded_bytes == 5_000_000
         assert p.total_bytes == 10_000_000
@@ -181,8 +228,10 @@ class TestClipProgressCallback:
         service.execute(request, on_progress=lambda p: progress_calls.append(p))
 
         downloading = [p for p in progress_calls if p.phase == ClipPhase.DOWNLOADING]
-        assert len(downloading) >= 1
-        p = downloading[0]
+        assert len(downloading) >= 2
+        detailed = [p for p in downloading if p.downloaded_bytes is not None]
+        assert len(detailed) >= 1
+        p = detailed[0]
         assert p.total_bytes == 10_000_000
         assert p.percent == 30.0
 

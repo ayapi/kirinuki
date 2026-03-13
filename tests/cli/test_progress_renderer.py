@@ -1,9 +1,63 @@
 """ProgressRenderer のユニットテスト"""
 
 import io
+from unittest.mock import patch
 
-from kirinuki.cli.progress_renderer import ProgressRenderer
+from kirinuki.cli.progress_renderer import ProgressRenderer, _detect_tty
 from kirinuki.models.clip import ClipPhase, ClipProgress
+
+
+class TestDetectTty:
+    """_detect_tty のテスト"""
+
+    def test_real_tty_returns_true(self) -> None:
+        """isatty()=True なら True"""
+        output = io.StringIO()
+        output.isatty = lambda: True  # type: ignore[assignment]
+        assert _detect_tty(output) is True
+
+    def test_non_tty_non_msys_returns_false(self) -> None:
+        """isatty()=False かつ MSYSTEM 未設定なら False"""
+        output = io.StringIO()
+        with patch.dict("os.environ", {}, clear=True):
+            assert _detect_tty(output) is False
+
+    def test_msys2_mintty_returns_true(self) -> None:
+        """isatty()=False でも MSYSTEM 設定 + TERM が dumb 以外 + 標準ストリームなら True"""
+        import sys
+
+        env = {"MSYSTEM": "MINGW64", "TERM": "xterm-256color"}
+        with patch.dict("os.environ", env, clear=True):
+            assert _detect_tty(sys.stderr) is True
+
+    def test_msys2_dumb_term_returns_false(self) -> None:
+        """MSYSTEM 設定済みでも TERM=dumb なら False（パイプリダイレクト）"""
+        output = io.StringIO()
+        env = {"MSYSTEM": "MINGW64", "TERM": "dumb"}
+        with patch.dict("os.environ", env, clear=True):
+            assert _detect_tty(output) is False
+
+    def test_msys2_no_term_returns_false(self) -> None:
+        """MSYSTEM 設定済みでも TERM 未設定なら False"""
+        output = io.StringIO()
+        env = {"MSYSTEM": "MINGW64"}
+        with patch.dict("os.environ", env, clear=True):
+            assert _detect_tty(output) is False
+
+    def test_msys2_non_standard_stream_returns_false(self) -> None:
+        """MSYS2環境でも標準ストリーム以外なら False"""
+        output = io.StringIO()  # 非標準ストリーム
+        env = {"MSYSTEM": "MINGW64", "TERM": "xterm-256color"}
+        with patch.dict("os.environ", env, clear=True):
+            assert _detect_tty(output) is False
+
+    def test_msys2_stderr_returns_true(self) -> None:
+        """MSYS2環境で sys.stderr なら True"""
+        import sys
+
+        env = {"MSYSTEM": "MINGW64", "TERM": "xterm-256color"}
+        with patch.dict("os.environ", env, clear=True):
+            assert _detect_tty(sys.stderr) is True
 
 
 class TestFormatProgressLine:
@@ -233,6 +287,61 @@ class TestFinishGuard:
         # This update should be silently ignored
         r.update(ClipProgress(clip_index=0, phase=ClipPhase.DOWNLOADING, percent=80.0))
         assert len(output.getvalue()) == len_after_finish
+
+
+class TestSpinner:
+    """スピナーアニメーションのテスト"""
+
+    def test_active_phase_has_spinner(self) -> None:
+        """ダウンロード中・再エンコード中にスピナー文字が含まれる"""
+        output = io.StringIO()
+        r = ProgressRenderer(total=1, output=output)
+        r._is_tty = True
+
+        r.update(ClipProgress(clip_index=0, phase=ClipPhase.DOWNLOADING))
+        content = output.getvalue()
+        # スピナーフレームのいずれかが含まれる
+        assert any(c in content for c in ProgressRenderer._SPINNER_FRAMES)
+
+    def test_done_phase_no_spinner(self) -> None:
+        """完了フェーズにスピナーが含まれない"""
+        r = ProgressRenderer(total=1, output=io.StringIO())
+        p = ClipProgress(clip_index=0, phase=ClipPhase.DONE)
+        line = r._format_line(p, spinner_char="⠋")
+        assert "⠋" not in line
+
+    def test_spinner_advances_on_tick(self) -> None:
+        """_tickでスピナーフレームが進む"""
+        output = io.StringIO()
+        r = ProgressRenderer(total=1, output=output)
+        r._is_tty = True
+
+        r.update(ClipProgress(clip_index=0, phase=ClipPhase.DOWNLOADING))
+        first = output.getvalue()
+
+        # Manually advance spinner
+        r._spinner_idx = 1
+        output.truncate(0)
+        output.seek(0)
+        r.update(ClipProgress(clip_index=0, phase=ClipPhase.DOWNLOADING))
+        second = output.getvalue()
+
+        # Different spinner frame should be used
+        assert first != second
+
+    def test_spinner_thread_stops_on_finish(self) -> None:
+        """finish()後にスピナースレッドが停止する"""
+        import time
+
+        output = io.StringIO()
+        r = ProgressRenderer(total=1, output=output)
+        r._is_tty = True
+
+        r.update(ClipProgress(clip_index=0, phase=ClipPhase.DOWNLOADING))
+        time.sleep(0.3)  # スピナースレッドが起動する時間
+        r.finish()
+        time.sleep(0.2)
+        assert r._finished is True
 
 
 class TestThreadSafety:
