@@ -1,6 +1,7 @@
 """切り抜き機能のユーティリティ関数"""
 
 import re
+from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
 
 from kirinuki.core.errors import InvalidURLError
@@ -208,3 +209,31 @@ def build_numbered_filename(filename: str, index: int, total: int) -> str:
 
     p = PurePosixPath(filename)
     return f"{p.stem}{index}{p.suffix}"
+
+
+_JST = timezone(timedelta(hours=9))
+_DATETIME_PREFIX_RE = re.compile(r"^\d{8}_\d{4}_")
+
+
+def has_datetime_prefix(filename: str) -> bool:
+    """ファイル名が既に YYYYMMDD_HHMM_ 形式の日時プレフィックスを持つかを判定する。"""
+    return bool(_DATETIME_PREFIX_RE.match(filename))
+
+
+def prepend_datetime_prefix(
+    filename: str,
+    broadcast_start_at: datetime | None,
+) -> str:
+    """ファイル名の先頭に配信開始日時プレフィックスを付与する。
+
+    - broadcast_start_at をJST変換し YYYYMMDD_HHMM_ 形式でプレフィックス
+    - broadcast_start_at が None の場合はファイル名をそのまま返す
+    - 既にプレフィックスがある場合は重複付与しない
+    """
+    if broadcast_start_at is None:
+        return filename
+    if has_datetime_prefix(filename):
+        return filename
+    jst_dt = broadcast_start_at.astimezone(_JST)
+    prefix = jst_dt.strftime("%Y%m%d_%H%M_")
+    return f"{prefix}{filename}"
