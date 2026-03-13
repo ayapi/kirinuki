@@ -88,7 +88,7 @@
   - プレフィックスが既に存在する場合は重複付与せずそのまま返す
   - _Requirements: 6.1, 6.2, 6.5, 6.6_
 
-- [ ] 7.2 (P) MultiClipRequest に配信開始日時フィールドを追加
+- [x] 7.2 (P) MultiClipRequest に配信開始日時フィールドを追加
   - MultiClipRequest モデルに `broadcast_start_at`（datetime | None、デフォルト None）フィールドを追加する
   - 既存のバリデーションや他フィールドへの影響がないことを確認する
   - _Requirements: 6.1_

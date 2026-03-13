@@ -1,5 +1,6 @@
 """MultiClip関連モデルのテスト"""
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -78,6 +79,26 @@ class TestMultiClipRequest:
             cookie_file=tmp_path / "cookies.txt",
         )
         assert req.cookie_file == tmp_path / "cookies.txt"
+
+    def test_broadcast_start_at_default_none(self, tmp_path: Path) -> None:
+        req = MultiClipRequest(
+            video_id="dQw4w9WgXcQ",
+            filename="video.mp4",
+            output_dir=tmp_path,
+            ranges=[TimeRange(start_seconds=0.0, end_seconds=10.0)],
+        )
+        assert req.broadcast_start_at is None
+
+    def test_broadcast_start_at_set(self, tmp_path: Path) -> None:
+        dt = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)
+        req = MultiClipRequest(
+            video_id="dQw4w9WgXcQ",
+            filename="video.mp4",
+            output_dir=tmp_path,
+            ranges=[TimeRange(start_seconds=0.0, end_seconds=10.0)],
+            broadcast_start_at=dt,
+        )
+        assert req.broadcast_start_at == dt
 
 
 class TestClipOutcome:

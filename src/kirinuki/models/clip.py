@@ -1,6 +1,7 @@
 """切り抜きリクエスト・結果のデータモデル"""
 
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
@@ -86,6 +87,7 @@ class MultiClipRequest(BaseModel):
     ranges: list[TimeRange]
     filenames: list[str] | None = None
     cookie_file: Path | None = None
+    broadcast_start_at: datetime | None = None
 
     @model_validator(mode="after")
     def validate_ranges(self) -> "MultiClipRequest":
