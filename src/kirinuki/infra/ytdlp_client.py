@@ -455,6 +455,7 @@ class YtdlpClient:
         end_seconds: float,
         output_path: Path,
         cookie_file: Path | None = None,
+        on_progress: Callable[[dict], None] | None = None,
     ) -> Path:
         """指定時間範囲のフラグメントのみをダウンロードし、出力先に保存する。
 
@@ -483,6 +484,9 @@ class YtdlpClient:
             ),
             "outtmpl": str(output_path),
         }
+        if on_progress is not None:
+            opts["progress_hooks"] = [on_progress]
+
         used_cookie = False
         if cookie_file:
             opts["cookiefile"] = str(cookie_file)
