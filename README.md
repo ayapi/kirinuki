@@ -87,6 +87,24 @@ kirinuki channel list
 kirinuki channel videos [channel_id]
 ```
 
+### 動画一覧
+
+```bash
+# 全チャンネル横断で動画一覧を新しい順に表示
+kirinuki videos
+
+# 表示件数を指定
+kirinuki videos --count 10
+
+# TUIモード: 動画を選択して segments/suggest を実行
+kirinuki videos --tui
+```
+
+| オプション | デフォルト | 説明 |
+|---|---|---|
+| `--count` | 20 | 表示件数 |
+| `--tui` | off | TUI モードで動画を選択し、segments/suggest を実行 |
+
 ### 字幕の同期
 
 ```bash
