@@ -10,6 +10,7 @@ import pytest
 from kirinuki.core.clip_service import ClipService
 from kirinuki.core.errors import AuthenticationRequiredError, ClipError, VideoDownloadError
 from kirinuki.models.clip import (
+    ClipProgress,
     MultiClipRequest,
     MultiClipResult,
     TimeRange,
@@ -50,6 +51,7 @@ class TestClipServiceExecute:
             120.0,
             tmp_path / "video.mp4",
             cookie_file=None,
+            on_progress=None,
         )
 
     def test_multiple_ranges_individual_downloads(
@@ -154,16 +156,14 @@ class TestClipServiceExecute:
             ],
         )
 
-        progress_calls: list[str] = []
-        service.execute(request, on_progress=lambda msg: progress_calls.append(msg))
+        progress_calls: list[ClipProgress] = []
+        service.execute(request, on_progress=lambda p: progress_calls.append(p))
 
-        assert len(progress_calls) == 3
-        # Parallel execution means order is nondeterministic;
-        # verify all progress markers are present regardless of order
-        joined = "\n".join(progress_calls)
-        assert "[1/3]" in joined
-        assert "[2/3]" in joined
-        assert "[3/3]" in joined
+        # Each clip emits at least a DONE phase
+        assert len(progress_calls) >= 3
+        # Verify all clip indices are present
+        indices = {p.clip_index for p in progress_calls}
+        assert indices == {0, 1, 2}
 
     def test_cookie_file_passed(
         self, service: ClipService, mock_ytdlp: MagicMock, tmp_path: Path

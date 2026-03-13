@@ -11,6 +11,8 @@ from kirinuki.core.clip_utils import build_numbered_filename
 from kirinuki.core.errors import AuthenticationRequiredError
 from kirinuki.models.clip import (
     ClipOutcome,
+    ClipPhase,
+    ClipProgress,
     MultiClipRequest,
     MultiClipResult,
 )
@@ -20,6 +22,33 @@ logger = logging.getLogger(__name__)
 
 class _FfmpegClient(Protocol):
     def reencode(self, file_path: Path) -> None: ...
+
+
+def _convert_ytdlp_progress(index: int, d: dict) -> ClipProgress | None:
+    """yt-dlpのprogress_hooks dictをClipProgressに変換する。
+
+    finishedステータスはダウンロードフェーズの完了を示す中間状態のため無視する。
+    """
+    status = d.get("status")
+    if status != "downloading":
+        return None
+
+    downloaded = d.get("downloaded_bytes", 0)
+    total = d.get("total_bytes") or d.get("total_bytes_estimate")
+
+    percent: float | None = None
+    if total and total > 0:
+        percent = downloaded / total * 100
+
+    return ClipProgress(
+        clip_index=index,
+        phase=ClipPhase.DOWNLOADING,
+        percent=percent,
+        downloaded_bytes=downloaded if downloaded else None,
+        total_bytes=total,
+        speed=d.get("speed"),
+        eta=d.get("eta"),
+    )
 
 
 class ClipService:
@@ -42,7 +71,7 @@ class ClipService:
     def execute(
         self,
         request: MultiClipRequest,
-        on_progress: Callable[[str], None] | None = None,
+        on_progress: Callable[[ClipProgress], None] | None = None,
     ) -> MultiClipResult:
         """複数範囲の切り抜きリクエストを実行し、結果を返す。
 
@@ -57,23 +86,27 @@ class ClipService:
 
         progress_lock = threading.Lock()
 
-        def _notify(msg: str) -> None:
+        def _notify(progress: ClipProgress) -> None:
             if on_progress:
                 with progress_lock:
-                    on_progress(msg)
+                    on_progress(progress)
 
         total = len(request.ranges)
 
         def _process_one(index: int) -> ClipOutcome:
-            i = index + 1
             time_range = request.ranges[index]
             if request.filenames:
                 filename = request.filenames[index]
             else:
-                filename = build_numbered_filename(request.filename, i, total)
+                filename = build_numbered_filename(
+                    request.filename, index + 1, total
+                )
             output_path = output_dir / filename
 
-            _notify(f"[{i}/{total}] ダウンロード・切り抜き中...")
+            def _ytdlp_hook(d: dict) -> None:
+                p = _convert_ytdlp_progress(index, d)
+                if p is not None:
+                    _notify(p)
 
             self._ytdlp.download_section(
                 request.video_id,
@@ -81,9 +114,15 @@ class ClipService:
                 time_range.end_seconds,
                 output_path,
                 cookie_file=request.cookie_file,
+                on_progress=_ytdlp_hook if on_progress else None,
             )
+
             if self._ffmpeg:
+                _notify(ClipProgress(clip_index=index, phase=ClipPhase.REENCODING))
                 self._ffmpeg.reencode(output_path)
+
+            _notify(ClipProgress(clip_index=index, phase=ClipPhase.DONE))
+
             return ClipOutcome(
                 range=time_range,
                 output_path=output_path,

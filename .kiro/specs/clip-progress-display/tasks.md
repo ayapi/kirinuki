@@ -35,7 +35,7 @@
   - 内部状態の更新とマルチクリップレイアウトを検証するユニットテストを書く
   - _Requirements: 1.4, 2.1, 2.2, 2.3, 3.1, 3.2, 3.3_
 
-- [ ] 4. ClipServiceの進捗コールバック拡張
+- [x] 4. ClipServiceの進捗コールバック拡張
   - on_progressの型をCallable[[str], None]からCallable[[ClipProgress], None]に変更する
   - yt-dlpのprogress_hooks dictをClipProgressに変換する内部ロジックを実装する（status→ClipPhase変換、downloaded_bytes/total_bytes/speed/eta抽出）
   - 再エンコード開始時と完了時にClipPhase.REENCODING / ClipPhase.DONEの通知を追加する
