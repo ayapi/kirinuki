@@ -1,8 +1,28 @@
 """切り抜きリクエスト・結果のデータモデル"""
 
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 from pydantic import BaseModel, model_validator
+
+
+class ClipPhase(Enum):
+    DOWNLOADING = "downloading"
+    REENCODING = "reencoding"
+    DONE = "done"
+    ERROR = "error"
+
+
+@dataclass(frozen=True)
+class ClipProgress:
+    clip_index: int  # 0-based index
+    phase: ClipPhase
+    percent: float | None = None  # 0.0-100.0
+    downloaded_bytes: int | None = None
+    total_bytes: int | None = None
+    speed: float | None = None  # bytes/sec
+    eta: int | None = None  # seconds
 
 SUPPORTED_FORMATS = {"mp4", "mkv", "webm"}
 
