@@ -44,7 +44,7 @@
   - フェーズ遷移と進捗変換の正確さを検証するユニットテストを書く
   - _Requirements: 1.1, 1.2, 1.3, 2.3, 3.2_
 
-- [ ] 5. CLIコマンド統合
+- [x] 5. CLIコマンド統合
   - cli/clip.pyでProgressRendererを生成し、ClipServiceのon_progressにrenderer.updateを渡す接続処理を実装する
   - 処理完了後にrenderer.finish()を呼び出して進捗行をクリアし、既存のサマリー表示に遷移する
   - 既存のサマリー表示（成功・失敗件数、個別結果）は変更しない

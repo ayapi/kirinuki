@@ -1,5 +1,6 @@
 """kirinuki clip コマンド定義"""
 
+import sys
 from pathlib import Path
 
 import click
@@ -7,6 +8,7 @@ from pydantic import ValidationError
 
 from kirinuki.cli.factory import create_clip_service
 from kirinuki.cli.main import cli
+from kirinuki.cli.progress_renderer import ProgressRenderer
 from kirinuki.core.clip_utils import parse_time_ranges, resolve_video_id
 from kirinuki.core.errors import (
     AuthenticationRequiredError,
@@ -64,9 +66,10 @@ def clip(
         raise SystemExit(1) from e
 
     service = create_clip_service(config)
+    renderer = ProgressRenderer(total=len(ranges), output=sys.stderr)
 
     try:
-        result = service.execute(request, on_progress=click.echo)
+        result = service.execute(request, on_progress=renderer.update)
     except AuthenticationRequiredError as e:
         msg = "認証が必要です。`kirinuki cookie set` で設定してください"
         click.echo(f"エラー: {msg}: {e}", err=True)
@@ -74,6 +77,8 @@ def clip(
     except VideoDownloadError as e:
         click.echo(f"エラー: {e}", err=True)
         raise SystemExit(1) from e
+    finally:
+        renderer.finish()
 
     # サマリー表示
     click.echo()
