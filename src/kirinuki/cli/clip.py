@@ -1,6 +1,8 @@
 """kirinuki clip コマンド定義"""
 
+import logging
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -18,6 +20,19 @@ from kirinuki.core.errors import (
 from kirinuki.core.formatter import format_time_range
 from kirinuki.models.clip import MultiClipRequest
 from kirinuki.models.config import AppConfig
+
+logger = logging.getLogger(__name__)
+
+
+def _fetch_broadcast_start_at(
+    config: AppConfig, video_id: str,
+) -> datetime | None:
+    """メタデータから broadcast_start_at を取得する。失敗時は None。"""
+    from kirinuki.infra.ytdlp_client import YtdlpClient
+
+    ytdlp = YtdlpClient(config)
+    meta = ytdlp.fetch_video_metadata(video_id)
+    return meta.broadcast_start_at or meta.published_at
 
 
 @cli.command()
@@ -54,12 +69,24 @@ def clip(
     config = AppConfig()
     output_dir = Path(output_dir_str) if output_dir_str else config.output_dir
 
+    # メタデータ取得で broadcast_start_at を取得
+    broadcast_start_at: datetime | None = None
+    try:
+        broadcast_start_at = _fetch_broadcast_start_at(config, video_id)
+    except Exception as e:
+        logger.warning("メタデータ取得に失敗しました: %s", e)
+        click.echo(
+            f"警告: メタデータ取得に失敗しました（日時プレフィックスなしで続行）: {e}",
+            err=True,
+        )
+
     try:
         request = MultiClipRequest(
             video_id=video_id,
             filename=filename,
             output_dir=output_dir,
             ranges=ranges,
+            broadcast_start_at=broadcast_start_at,
         )
     except ValidationError as e:
         click.echo(f"エラー: リクエストが不正です: {e}", err=True)

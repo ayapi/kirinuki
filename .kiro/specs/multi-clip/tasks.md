@@ -101,7 +101,7 @@
   - _Requirements: 6.1, 6.3, 6.4_
 
 - [ ] 9. CLI・TUI での配信開始日時の取得と受け渡し
-- [ ] 9.1 (P) CLI clip コマンドでメタデータを取得し broadcast_start_at を設定
+- [x] 9.1 (P) CLI clip コマンドでメタデータを取得し broadcast_start_at を設定
   - clip コマンド実行時に YtdlpClient.fetch_video_metadata() で動画のメタデータを取得する
   - broadcast_start_at を取得し、未取得の場合は published_at にフォールバックする
   - メタデータ取得失敗時はワーニングを表示し broadcast_start_at=None で処理を続行する

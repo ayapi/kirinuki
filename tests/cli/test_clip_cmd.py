@@ -1,5 +1,6 @@
 """kirinuki clip コマンドのインテグレーションテスト"""
 
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -24,6 +25,15 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+def _patch_clip():
+    """clipコマンドの外部依存を一括でpatchするヘルパー。"""
+    return (
+        patch("kirinuki.cli.clip.create_clip_service"),
+        patch("kirinuki.cli.clip.AppConfig"),
+        patch("kirinuki.cli.clip._fetch_broadcast_start_at", return_value=None),
+    )
+
+
 class TestClipCommand:
     def test_normal_single_range(self, runner: CliRunner, tmp_path: Path) -> None:
         """正常系: 単一範囲の切り抜き"""
@@ -37,10 +47,8 @@ class TestClipCommand:
             ],
         )
 
-        with (
-            patch("kirinuki.cli.clip.create_clip_service") as mock_create_clip,
-            patch("kirinuki.cli.clip.AppConfig") as MockConfig,
-        ):
+        p1, p2, p3 = _patch_clip()
+        with p1 as mock_create_clip, p2 as MockConfig, p3:
             MockConfig.return_value.output_dir = tmp_path
             MockConfig.return_value.cookie_file_path = tmp_path / "cookies.txt"
             mock_create_clip.return_value.execute.return_value = mock_result
@@ -69,10 +77,8 @@ class TestClipCommand:
             ],
         )
 
-        with (
-            patch("kirinuki.cli.clip.create_clip_service") as mock_create_clip,
-            patch("kirinuki.cli.clip.AppConfig") as MockConfig,
-        ):
+        p1, p2, p3 = _patch_clip()
+        with p1 as mock_create_clip, p2 as MockConfig, p3:
             MockConfig.return_value.output_dir = tmp_path
             MockConfig.return_value.cookie_file_path = tmp_path / "cookies.txt"
             mock_create_clip.return_value.execute.return_value = mock_result
@@ -96,10 +102,8 @@ class TestClipCommand:
             ],
         )
 
-        with (
-            patch("kirinuki.cli.clip.create_clip_service") as mock_create_clip,
-            patch("kirinuki.cli.clip.AppConfig") as MockConfig,
-        ):
+        p1, p2, p3 = _patch_clip()
+        with p1 as mock_create_clip, p2 as MockConfig, p3:
             MockConfig.return_value.output_dir = tmp_path
             MockConfig.return_value.cookie_file_path = tmp_path / "cookies.txt"
             mock_create_clip.return_value.execute.return_value = mock_result
@@ -170,10 +174,8 @@ class TestClipCommand:
             ],
         )
 
-        with (
-            patch("kirinuki.cli.clip.create_clip_service") as mock_create_clip,
-            patch("kirinuki.cli.clip.AppConfig") as MockConfig,
-        ):
+        p1, p2, p3 = _patch_clip()
+        with p1 as mock_create_clip, p2 as MockConfig, p3:
             MockConfig.return_value.output_dir = tmp_path / "default"
             MockConfig.return_value.cookie_file_path = tmp_path / "cookies.txt"
             mock_create_clip.return_value.execute.return_value = mock_result
@@ -208,10 +210,8 @@ class TestClipCommand:
             ],
         )
 
-        with (
-            patch("kirinuki.cli.clip.create_clip_service") as mock_create_clip,
-            patch("kirinuki.cli.clip.AppConfig") as MockConfig,
-        ):
+        p1, p2, p3 = _patch_clip()
+        with p1 as mock_create_clip, p2 as MockConfig, p3:
             MockConfig.return_value.output_dir = tmp_path
             MockConfig.return_value.cookie_file_path = tmp_path / "cookies.txt"
             mock_create_clip.return_value.execute.return_value = mock_result
@@ -226,10 +226,8 @@ class TestClipCommand:
 
     def test_auth_required_error(self, runner: CliRunner, tmp_path: Path) -> None:
         """認証エラー"""
-        with (
-            patch("kirinuki.cli.clip.create_clip_service") as mock_create_clip,
-            patch("kirinuki.cli.clip.AppConfig") as MockConfig,
-        ):
+        p1, p2, p3 = _patch_clip()
+        with p1 as mock_create_clip, p2 as MockConfig, p3:
             MockConfig.return_value.output_dir = tmp_path
             MockConfig.return_value.cookie_file_path = tmp_path / "cookies.txt"
             mock_create_clip.return_value.execute.side_effect = AuthenticationRequiredError(
@@ -266,10 +264,8 @@ class TestClipCommand:
             ],
         )
 
-        with (
-            patch("kirinuki.cli.clip.create_clip_service") as mock_create_clip,
-            patch("kirinuki.cli.clip.AppConfig") as MockConfig,
-        ):
+        p1, p2, p3 = _patch_clip()
+        with p1 as mock_create_clip, p2 as MockConfig, p3:
             MockConfig.return_value.output_dir = tmp_path
             MockConfig.return_value.cookie_file_path = tmp_path / "cookies.txt"
             mock_create_clip.return_value.execute.return_value = mock_result
@@ -301,10 +297,8 @@ class TestClipCommand:
             ],
         )
 
-        with (
-            patch("kirinuki.cli.clip.create_clip_service") as mock_create_clip,
-            patch("kirinuki.cli.clip.AppConfig") as MockConfig,
-        ):
+        p1, p2, p3 = _patch_clip()
+        with p1 as mock_create_clip, p2 as MockConfig, p3:
             MockConfig.return_value.output_dir = tmp_path
             MockConfig.return_value.cookie_file_path = tmp_path / "cookies.txt"
             mock_create_clip.return_value.execute.return_value = mock_result
@@ -314,3 +308,71 @@ class TestClipCommand:
             )
 
         assert result.exit_code == 0
+
+
+class TestClipCommandBroadcastStartAt:
+    def test_broadcast_start_at_passed_to_request(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """メタデータ取得成功時にbroadcast_start_atがリクエストに設定される"""
+        dt = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)
+        mock_result = MultiClipResult(
+            video_id="dQw4w9WgXcQ",
+            outcomes=[
+                ClipOutcome(
+                    range=TimeRange(start_seconds=60.0, end_seconds=120.0),
+                    output_path=tmp_path / "20260310_2100_output.mp4",
+                ),
+            ],
+        )
+
+        with (
+            patch("kirinuki.cli.clip.create_clip_service") as mock_create_clip,
+            patch("kirinuki.cli.clip.AppConfig") as MockConfig,
+            patch("kirinuki.cli.clip._fetch_broadcast_start_at", return_value=dt),
+        ):
+            MockConfig.return_value.output_dir = tmp_path
+            MockConfig.return_value.cookie_file_path = tmp_path / "cookies.txt"
+            mock_create_clip.return_value.execute.return_value = mock_result
+
+            result = runner.invoke(
+                cli, ["clip", "dQw4w9WgXcQ", "output.mp4", "1:00-2:00"]
+            )
+
+        assert result.exit_code == 0
+        call_args = mock_create_clip.return_value.execute.call_args[0][0]
+        assert call_args.broadcast_start_at == dt
+
+    def test_metadata_failure_continues_without_prefix(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """メタデータ取得失敗時もbroadcast_start_at=Noneで続行"""
+        mock_result = MultiClipResult(
+            video_id="dQw4w9WgXcQ",
+            outcomes=[
+                ClipOutcome(
+                    range=TimeRange(start_seconds=60.0, end_seconds=120.0),
+                    output_path=tmp_path / "output.mp4",
+                ),
+            ],
+        )
+
+        with (
+            patch("kirinuki.cli.clip.create_clip_service") as mock_create_clip,
+            patch("kirinuki.cli.clip.AppConfig") as MockConfig,
+            patch(
+                "kirinuki.cli.clip._fetch_broadcast_start_at",
+                side_effect=RuntimeError("network error"),
+            ),
+        ):
+            MockConfig.return_value.output_dir = tmp_path
+            MockConfig.return_value.cookie_file_path = tmp_path / "cookies.txt"
+            mock_create_clip.return_value.execute.return_value = mock_result
+
+            result = runner.invoke(
+                cli, ["clip", "dQw4w9WgXcQ", "output.mp4", "1:00-2:00"]
+            )
+
+        assert result.exit_code == 0
+        call_args = mock_create_clip.return_value.execute.call_args[0][0]
+        assert call_args.broadcast_start_at is None
