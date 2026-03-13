@@ -133,6 +133,7 @@ class TestE2EJsonOutput:
         video = parsed["videos"][0]
         assert "video_id" in video
         assert "title" in video
+        assert "broadcast_start_at" in video
         assert "recommendations" in video
 
         rec = video["recommendations"][0]

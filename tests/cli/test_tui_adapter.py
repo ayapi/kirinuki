@@ -108,7 +108,7 @@ class TestAdaptSuggestResults:
                 VideoWithRecommendations(
                     video_id="vid12345678",
                     title="動画タイトル",
-                    published_at="2025-01-01",
+                    broadcast_start_at="2025-01-01",
                     recommendations=[
                         SegmentRecommendation(
                             segment_id=1,
@@ -143,7 +143,7 @@ class TestAdaptSuggestResults:
                 VideoWithRecommendations(
                     video_id="vid12345678",
                     title="動画名",
-                    published_at="2025-01-01",
+                    broadcast_start_at="2025-01-01",
                     recommendations=[
                         SegmentRecommendation(
                             segment_id=1,
@@ -172,7 +172,7 @@ class TestAdaptSuggestResults:
                 VideoWithRecommendations(
                     video_id="vid_a_123456",
                     title="動画A",
-                    published_at="2025-01-01",
+                    broadcast_start_at="2025-01-01",
                     recommendations=[
                         SegmentRecommendation(
                             segment_id=1, video_id="vid_a_123456",
@@ -184,7 +184,7 @@ class TestAdaptSuggestResults:
                 VideoWithRecommendations(
                     video_id="vid_b_123456",
                     title="動画B",
-                    published_at="2025-01-02",
+                    broadcast_start_at="2025-01-02",
                     recommendations=[
                         SegmentRecommendation(
                             segment_id=2, video_id="vid_b_123456",

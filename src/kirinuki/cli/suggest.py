@@ -10,7 +10,7 @@ import click
 
 from kirinuki.cli.resolve import resolve_channel_id
 from kirinuki.core.errors import ChannelNotFoundError, NoArchivesError
-from kirinuki.core.formatter import RecommendationFormatter
+from kirinuki.core.formatter import RecommendationFormatter, format_broadcast_date
 from kirinuki.core.suggest import SuggestService
 from kirinuki.infra.database import Database
 from kirinuki.infra.llm_client import LlmClient
@@ -109,7 +109,7 @@ def suggest(
         if videos:
             _status(f"\n対象アーカイブ ({len(videos)}件):", output_json)
             for v in videos:
-                _status(f"  - {v['title']} ({v.get('published_at', '不明')})", output_json)
+                _status(f"  - {v['title']} ({format_broadcast_date(v.get('broadcast_start_at', ''))})", output_json)
             _status("", output_json)
 
         _status("セグメントを評価中...", output_json)

@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Infra層の拡張
+- [x] 1. Infra層の拡張
 - [x] 1.1 (P) DBスキーマv2マイグレーションとbroadcast_start_at対応メソッド追加
   - `SCHEMA_VERSION` を 1 → 2 に変更し、`SCHEMA_SQL` の videos テーブルに `broadcast_start_at TEXT` カラムを追加する
   - `initialize()` 内でバージョン 1 の DB を検出した場合、`ALTER TABLE videos ADD COLUMN broadcast_start_at TEXT` を実行し、`schema_version` を 2 に更新するマイグレーション処理を追加する

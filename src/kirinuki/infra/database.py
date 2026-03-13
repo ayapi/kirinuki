@@ -661,18 +661,21 @@ class Database:
         if until is not None:
             until_str = until.strftime("%Y-%m-%dT%H:%M:%S")
             rows = self._execute(
-                """SELECT video_id, title, published_at, duration_seconds
+                """SELECT video_id, title,
+                          COALESCE(broadcast_start_at, published_at) AS broadcast_start_at,
+                          duration_seconds
                    FROM videos
                    WHERE channel_id = ?
-                     AND (substr(broadcast_start_at, 1, 19) <= ?
-                          OR (broadcast_start_at IS NULL AND substr(published_at, 1, 19) <= ?))
+                     AND substr(COALESCE(broadcast_start_at, published_at), 1, 19) <= ?
                    ORDER BY COALESCE(broadcast_start_at, published_at) DESC
                    LIMIT ?""",
-                (channel_id, until_str, until_str, count),
+                (channel_id, until_str, count),
             ).fetchall()
         else:
             rows = self._execute(
-                """SELECT video_id, title, published_at, duration_seconds
+                """SELECT video_id, title,
+                          COALESCE(broadcast_start_at, published_at) AS broadcast_start_at,
+                          duration_seconds
                    FROM videos
                    WHERE channel_id = ?
                    ORDER BY COALESCE(broadcast_start_at, published_at) DESC
@@ -683,7 +686,7 @@ class Database:
             {
                 "video_id": row[0],
                 "title": row[1],
-                "published_at": row[2],
+                "broadcast_start_at": row[2],
                 "duration_seconds": row[3],
             }
             for row in rows
@@ -693,17 +696,19 @@ class Database:
         """指定された動画IDの情報を取得する。存在しないIDは結果に含まれない。"""
         placeholders = ",".join("?" for _ in video_ids)
         rows = self._execute(
-            f"""SELECT video_id, title, published_at, duration_seconds
+            f"""SELECT video_id, title,
+                       COALESCE(broadcast_start_at, published_at) AS broadcast_start_at,
+                       duration_seconds
                 FROM videos
                 WHERE video_id IN ({placeholders})
-                ORDER BY published_at DESC""",
+                ORDER BY COALESCE(broadcast_start_at, published_at) DESC""",
             tuple(video_ids),
         ).fetchall()
         return [
             {
                 "video_id": row[0],
                 "title": row[1],
-                "published_at": row[2],
+                "broadcast_start_at": row[2],
                 "duration_seconds": row[3],
             }
             for row in rows

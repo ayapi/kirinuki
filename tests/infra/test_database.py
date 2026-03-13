@@ -729,6 +729,31 @@ class TestGetVideosByIds:
         latest = db.get_latest_videos("UC123", 1)
         assert set(by_ids[0].keys()) == set(latest[0].keys())
 
+    def test_returns_broadcast_start_at_key(self, db: Database) -> None:
+        """返却dictにbroadcast_start_atキーが含まれる"""
+        _setup_db_with_videos(db)
+        result = db.get_videos_by_ids(["vid000"])
+        assert "broadcast_start_at" in result[0]
+
+    def test_orders_by_broadcast_start_at_coalesce(self, db: Database) -> None:
+        """COALESCE(broadcast_start_at, published_at)降順でソートされる"""
+        db.save_channel("UCX", "ChX", "https://youtube.com/c/chx")
+        db.save_video(
+            "va", "UCX", "Video A",
+            published_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            duration_seconds=3600, subtitle_language="ja", is_auto_subtitle=False,
+            broadcast_start_at=datetime(2024, 3, 1, 20, 0, tzinfo=timezone.utc),
+        )
+        db.save_video(
+            "vb", "UCX", "Video B",
+            published_at=datetime(2024, 2, 1, tzinfo=timezone.utc),
+            duration_seconds=3600, subtitle_language="ja", is_auto_subtitle=False,
+        )
+        result = db.get_videos_by_ids(["va", "vb"])
+        # va: COALESCE(2024-03-01T20:00, ...) > vb: COALESCE(NULL, 2024-02-01)
+        assert result[0]["video_id"] == "va"
+        assert result[1]["video_id"] == "vb"
+
 
 class TestGetLatestVideos:
     def test_returns_latest_n_videos(self, db: Database) -> None:
@@ -990,6 +1015,21 @@ class TestGetLatestVideosUntil:
         # vid1: COALESCE(2024-01-01T20:00, ...) = 2024-01-01T20:00
         ids = [r["video_id"] for r in result]
         assert ids == ["vid3", "vid2", "vid1"]
+
+    def test_returns_broadcast_start_at_key(self, db_with_broadcast: Database) -> None:
+        """返却dictにbroadcast_start_atキーが含まれる"""
+        result = db_with_broadcast.get_latest_videos("UC1", 10)
+        for r in result:
+            assert "broadcast_start_at" in r
+
+    def test_broadcast_start_at_uses_coalesce(self, db_with_broadcast: Database) -> None:
+        """broadcast_start_at値はCOALESCE(broadcast_start_at, published_at)"""
+        result = db_with_broadcast.get_latest_videos("UC1", 10)
+        by_id = {r["video_id"]: r for r in result}
+        # vid1: broadcast_start_at = 2024-01-01T20:00:00+00:00
+        assert "2024-01-01T20:00:00" in by_id["vid1"]["broadcast_start_at"]
+        # vid3: broadcast_start_at=NULL → published_at = 2024-03-01T00:00:00+00:00
+        assert "2024-03-01" in by_id["vid3"]["broadcast_start_at"]
 
 
 class TestBackfillMethods:

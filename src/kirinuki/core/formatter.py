@@ -3,10 +3,20 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 from kirinuki.core.clip_utils import build_youtube_url
 from kirinuki.models.recommendation import SuggestResult, VideoWithRecommendations
+
+
+def format_broadcast_date(iso_str: str) -> str:
+    """ISO 8601文字列をローカルタイムゾーンの 'YYYY-MM-DD HH:MM' に変換する。"""
+    try:
+        dt = datetime.fromisoformat(iso_str)
+        return dt.astimezone().strftime("%Y-%m-%d %H:%M")
+    except (ValueError, TypeError):
+        return iso_str
 
 
 def format_time(seconds: float) -> str:
@@ -50,7 +60,7 @@ class RecommendationFormatter:
 
         for video in sorted_videos:
             lines.append(f"## {video.title}")
-            lines.append(f"   配信日時: {video.published_at}")
+            lines.append(f"   配信日時: {format_broadcast_date(video.broadcast_start_at)}")
             lines.append("")
 
             # 動画内は時系列順
@@ -82,7 +92,7 @@ class RecommendationFormatter:
         return {
             "video_id": video.video_id,
             "title": video.title,
-            "published_at": video.published_at,
+            "broadcast_start_at": format_broadcast_date(video.broadcast_start_at),
             "recommendations": [
                 {
                     "segment_id": r.segment_id,

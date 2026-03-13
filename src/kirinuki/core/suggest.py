@@ -51,7 +51,7 @@ class SuggestService:
                     VideoWithRecommendations(
                         video_id=video_id,
                         title=video["title"],
-                        published_at=str(video.get("published_at", "")),
+                        broadcast_start_at=str(video.get("broadcast_start_at", "")),
                         recommendations=filtered,
                     )
                 )

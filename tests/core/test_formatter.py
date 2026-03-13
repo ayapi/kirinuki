@@ -3,7 +3,12 @@
 import json
 
 from kirinuki.core.clip_utils import parse_time_ranges
-from kirinuki.core.formatter import RecommendationFormatter, format_time, format_time_range
+from kirinuki.core.formatter import (
+    RecommendationFormatter,
+    format_broadcast_date,
+    format_time,
+    format_time_range,
+)
 from kirinuki.models.recommendation import (
     SegmentRecommendation,
     SuggestResult,
@@ -40,7 +45,7 @@ def _make_result(
             VideoWithRecommendations(
                 video_id="abc123",
                 title="テスト動画1",
-                published_at="2026-01-15T00:00:00",
+                broadcast_start_at="2026-01-15T00:00:00",
                 recommendations=[
                     _make_rec(segment_id=1, start_time=120.0, end_time=300.0, score=9),
                     _make_rec(segment_id=2, start_time=60.0, end_time=120.0, score=7),
@@ -49,6 +54,32 @@ def _make_result(
         ]
     total = sum(len(v.recommendations) for v in videos)
     return SuggestResult(videos=videos, total_candidates=total, filtered_count=total)
+
+
+class TestFormatBroadcastDate:
+    def test_utc_to_local(self) -> None:
+        """UTC ISO文字列がローカルタイムゾーンのYYYY-MM-DD HH:MM形式に変換される"""
+        from datetime import datetime, timezone
+
+        # UTC 2026-01-15T20:00:00+00:00 → ローカル変換
+        result = format_broadcast_date("2026-01-15T20:00:00+00:00")
+        # ローカルタイムゾーンでの期待値を動的に算出
+        utc_dt = datetime(2026, 1, 15, 20, 0, tzinfo=timezone.utc)
+        expected = utc_dt.astimezone().strftime("%Y-%m-%d %H:%M")
+        assert result == expected
+
+    def test_naive_datetime(self) -> None:
+        """タイムゾーンなしISO文字列もフォーマットされる"""
+        result = format_broadcast_date("2026-01-15T20:00:00")
+        assert "2026-01-15" in result
+        assert ":" in result
+
+    def test_invalid_string_returned_as_is(self) -> None:
+        """パース不可の文字列はそのまま返す"""
+        assert format_broadcast_date("not-a-date") == "not-a-date"
+
+    def test_empty_string_returned_as_is(self) -> None:
+        assert format_broadcast_date("") == ""
 
 
 class TestFormatTime:
@@ -142,13 +173,13 @@ class TestFormatText:
             VideoWithRecommendations(
                 video_id="low",
                 title="低スコア動画",
-                published_at="2026-01-10T00:00:00",
+                broadcast_start_at="2026-01-10T00:00:00",
                 recommendations=[_make_rec(video_id="low", score=5)],
             ),
             VideoWithRecommendations(
                 video_id="high",
                 title="高スコア動画",
-                published_at="2026-01-15T00:00:00",
+                broadcast_start_at="2026-01-15T00:00:00",
                 recommendations=[_make_rec(video_id="high", score=10)],
             ),
         ]
@@ -186,7 +217,7 @@ class TestFormatJson:
         video = parsed["videos"][0]
         assert "video_id" in video
         assert "title" in video
-        assert "published_at" in video
+        assert "broadcast_start_at" in video
         assert "recommendations" in video
 
         rec = video["recommendations"][0]

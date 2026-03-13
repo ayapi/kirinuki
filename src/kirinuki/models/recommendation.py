@@ -32,7 +32,7 @@ class SuggestOptions:
 class VideoWithRecommendations:
     video_id: str
     title: str
-    published_at: str
+    broadcast_start_at: str
     recommendations: list[SegmentRecommendation] = field(default_factory=list)
 
 

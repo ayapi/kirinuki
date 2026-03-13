@@ -126,7 +126,7 @@ class TestVideoWithRecommendations:
         video = VideoWithRecommendations(
             video_id="abc123",
             title="テスト動画",
-            published_at="2026-01-01T00:00:00",
+            broadcast_start_at="2026-01-01T00:00:00",
             recommendations=[rec],
         )
         assert video.video_id == "abc123"
