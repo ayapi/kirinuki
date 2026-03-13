@@ -495,12 +495,15 @@ class TestVideos:
         """通常モードで配信日時・タイトル・URLが表示される"""
         from datetime import datetime, timezone
 
+        dt_utc = datetime(2024, 6, 15, 20, 0, tzinfo=timezone.utc)
+        expected_local = dt_utc.astimezone().strftime("%Y-%m-%d %H:%M")
+
         mock_context = MagicMock()
         mock_context.db.get_all_videos.return_value = [
             VideoSummary(
                 video_id="vid1",
                 title="テスト動画",
-                published_at=datetime(2024, 6, 15, 20, 0, tzinfo=timezone.utc),
+                published_at=dt_utc,
                 duration_seconds=3600,
             ),
         ]
@@ -509,7 +512,7 @@ class TestVideos:
 
         result = runner.invoke(cli, ["videos"])
         assert result.exit_code == 0
-        assert "2024-06-15 20:00" in result.output
+        assert expected_local in result.output
         assert "テスト動画" in result.output
         assert "https://www.youtube.com/watch?v=vid1" in result.output
 

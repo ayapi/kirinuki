@@ -438,7 +438,7 @@ def videos(count: int, tui: bool) -> None:
             return
 
         for v in all_videos:
-            date = v.published_at.strftime("%Y-%m-%d %H:%M") if v.published_at else "不明"
+            date = v.published_at.astimezone().strftime("%Y-%m-%d %H:%M") if v.published_at else "不明"
             url = f"https://www.youtube.com/watch?v={v.video_id}"
             click.echo(f"  [{date}] {v.title}")
             click.echo(f"     {url}")
@@ -449,7 +449,7 @@ def _run_tui_flow_videos(all_videos: list, ctx: AppContext) -> None:
     from kirinuki.cli.tui import run_tui_select_one
 
     options = [
-        f"[{v.published_at.strftime('%Y-%m-%d %H:%M') if v.published_at else '不明'}] {v.title}"
+        f"[{v.published_at.astimezone().strftime('%Y-%m-%d %H:%M') if v.published_at else '不明'}] {v.title}"
         for v in all_videos
     ]
     selected_idx = run_tui_select_one(options)
