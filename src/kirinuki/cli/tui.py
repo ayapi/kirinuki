@@ -90,6 +90,28 @@ def adapt_suggest_results(result: SuggestResult) -> list[ClipCandidate]:
     return candidates
 
 
+def run_tui_select_one(options: list[str]) -> int | None:
+    """単一選択メニューを表示し、選択されたインデックスを返す。キャンセル時はNone。"""
+    import shutil
+
+    from beaupy import select
+
+    terminal_height = shutil.get_terminal_size().lines
+    page_size = max(5, terminal_height - 4)
+
+    try:
+        selected = select(
+            options,
+            return_index=True,
+            pagination=True,
+            page_size=page_size,
+        )
+    except KeyboardInterrupt:
+        return None
+
+    return selected
+
+
 def run_tui_select(candidates: list[ClipCandidate]) -> list[ClipCandidate]:
     """マルチセレクトメニューを表示し、選択された候補を返す。
 
