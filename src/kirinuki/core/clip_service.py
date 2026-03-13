@@ -108,20 +108,24 @@ class ClipService:
                 if p is not None:
                     _notify(p)
 
-            self._ytdlp.download_section(
-                request.video_id,
-                time_range.start_seconds,
-                time_range.end_seconds,
-                output_path,
-                cookie_file=request.cookie_file,
-                on_progress=_ytdlp_hook if on_progress else None,
-            )
+            try:
+                self._ytdlp.download_section(
+                    request.video_id,
+                    time_range.start_seconds,
+                    time_range.end_seconds,
+                    output_path,
+                    cookie_file=request.cookie_file,
+                    on_progress=_ytdlp_hook if on_progress else None,
+                )
 
-            if self._ffmpeg:
-                _notify(ClipProgress(clip_index=index, phase=ClipPhase.REENCODING))
-                self._ffmpeg.reencode(output_path)
+                if self._ffmpeg:
+                    _notify(ClipProgress(clip_index=index, phase=ClipPhase.REENCODING))
+                    self._ffmpeg.reencode(output_path)
 
-            _notify(ClipProgress(clip_index=index, phase=ClipPhase.DONE))
+                _notify(ClipProgress(clip_index=index, phase=ClipPhase.DONE))
+            except Exception:
+                _notify(ClipProgress(clip_index=index, phase=ClipPhase.ERROR))
+                raise
 
             return ClipOutcome(
                 range=time_range,

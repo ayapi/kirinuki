@@ -216,6 +216,25 @@ class TestMultiClipRendering:
         assert 1 in active
 
 
+class TestFinishGuard:
+    """finish()後の更新抑制テスト"""
+
+    def test_update_after_finish_ignored(self) -> None:
+        """finish()後のupdateは無視される"""
+        output = io.StringIO()
+        r = ProgressRenderer(total=1, output=output)
+        r._is_tty = True
+        r.update(ClipProgress(clip_index=0, phase=ClipPhase.DOWNLOADING, percent=50.0))
+        r.finish()
+
+        # Record output length after finish
+        len_after_finish = len(output.getvalue())
+
+        # This update should be silently ignored
+        r.update(ClipProgress(clip_index=0, phase=ClipPhase.DOWNLOADING, percent=80.0))
+        assert len(output.getvalue()) == len_after_finish
+
+
 class TestThreadSafety:
     """スレッドセーフ性のテスト"""
 

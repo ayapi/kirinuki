@@ -1,10 +1,17 @@
 """進捗のターミナル描画"""
 
+import os
 import sys
 import threading
 from typing import TextIO
 
 from kirinuki.models.clip import ClipPhase, ClipProgress
+
+
+def _enable_windows_vt() -> None:
+    """WindowsコンソールでVT100エスケープシーケンスを有効化する。"""
+    if sys.platform == "win32":
+        os.system("")
 
 
 def _format_bytes(n: int) -> str:
@@ -31,9 +38,12 @@ class ProgressRenderer:
         self._total = total
         self._output = output
         self._is_tty: bool = hasattr(output, "isatty") and output.isatty()
+        if self._is_tty:
+            _enable_windows_vt()
         self._states: dict[int, ClipProgress] = {}
         self._completed: int = 0
         self._lines_written: int = 0
+        self._finished: bool = False
         self._lock = threading.Lock()
 
     def _format_line(self, progress: ClipProgress) -> str:
@@ -73,6 +83,9 @@ class ProgressRenderer:
             return
 
         with self._lock:
+            if self._finished:
+                return
+
             # 完了カウント更新
             prev = self._states.get(progress.clip_index)
             if (
@@ -132,3 +145,4 @@ class ProgressRenderer:
                 self._output.write(f"\033[{self._lines_written}A")
                 self._output.flush()
             self._lines_written = 0
+            self._finished = True
