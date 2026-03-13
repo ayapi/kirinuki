@@ -23,6 +23,8 @@ class FfmpegClient(Protocol):
         end_seconds: float,
     ) -> None: ...
 
+    def reencode(self, file_path: Path) -> None: ...
+
 
 class FfmpegClientImpl:
     """ffmpegのsubprocessラッパー実装"""
@@ -65,7 +67,9 @@ class FfmpegClientImpl:
             "-pix_fmt",
             "yuv420p",
             "-c:a",
-            "aac",
+            "libmp3lame",
+            "-q:a",
+            "2",
             "-movflags",
             "+faststart",
             str(output_path),
@@ -84,3 +88,52 @@ class FfmpegClientImpl:
             ) from e
         except subprocess.CalledProcessError as e:
             raise ClipError(f"ffmpegによる切り出しに失敗しました: {e.stderr}") from e
+
+    def reencode(self, file_path: Path) -> None:
+        """動画ファイルを再エンコードする（edit list除去・Vrew互換性のため）。
+
+        映像をlibx264、音声をlibmp3lameで再エンコードし、
+        edit listを排除して音ズレを防ぐ。元ファイルを置き換える。
+        """
+        tmp_path = file_path.with_suffix(".tmp.mp4")
+
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(file_path),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "20",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "libmp3lame",
+            "-q:a",
+            "2",
+            "-movflags",
+            "+faststart",
+            str(tmp_path),
+        ]
+
+        logger.debug("ffmpeg reencode command: %s", " ".join(cmd))
+
+        try:
+            subprocess.run(
+                cmd, capture_output=True, text=True, check=True,
+                encoding="utf-8", errors="replace", timeout=1800,
+            )
+            tmp_path.replace(file_path)
+        except subprocess.TimeoutExpired as e:
+            raise ClipError(
+                "ffmpegがタイムアウトしました（30分）。入力ファイルが破損している可能性があります"
+            ) from e
+        except subprocess.CalledProcessError as e:
+            raise ClipError(
+                f"ffmpegによる再エンコードに失敗しました: {e.stderr}"
+            ) from e
+        finally:
+            tmp_path.unlink(missing_ok=True)

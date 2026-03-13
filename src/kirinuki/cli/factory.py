@@ -16,5 +16,10 @@ def create_clip_service(config: AppConfig) -> ClipService:
     from kirinuki.infra.ytdlp_client import YtdlpClient
 
     ytdlp = YtdlpClient(config)
-    FfmpegClientImpl().check_available()
-    return _ClipService(ytdlp_client=ytdlp, max_workers=config.max_concurrent_api_calls)
+    ffmpeg = FfmpegClientImpl()
+    ffmpeg.check_available()
+    return _ClipService(
+        ytdlp_client=ytdlp,
+        ffmpeg_client=ffmpeg,
+        max_workers=config.max_concurrent_api_calls,
+    )

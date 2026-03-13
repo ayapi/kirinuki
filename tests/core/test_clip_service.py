@@ -224,6 +224,45 @@ class TestClipServiceExecute:
         assert second_output == tmp_path / "video2.mp4"
 
 
+class TestClipServiceReencode:
+    def test_reencode_called_after_download(
+        self, mock_ytdlp: MagicMock, tmp_path: Path
+    ) -> None:
+        """download_section後にreencodeが呼ばれる"""
+        mock_ffmpeg = MagicMock()
+        service = ClipService(
+            ytdlp_client=mock_ytdlp, ffmpeg_client=mock_ffmpeg, max_workers=4
+        )
+        request = MultiClipRequest(
+            video_id="dQw4w9WgXcQ",
+            filename="video.mp4",
+            output_dir=tmp_path,
+            ranges=[TimeRange(start_seconds=60.0, end_seconds=120.0)],
+        )
+
+        result = service.execute(request)
+
+        assert result.success_count == 1
+        mock_ffmpeg.reencode.assert_called_once_with(
+            tmp_path / "video.mp4"
+        )
+
+    def test_no_reencode_when_ffmpeg_not_provided(
+        self, service: ClipService, mock_ytdlp: MagicMock, tmp_path: Path
+    ) -> None:
+        """ffmpeg_clientなしの場合、再エンコードはスキップされる"""
+        request = MultiClipRequest(
+            video_id="dQw4w9WgXcQ",
+            filename="video.mp4",
+            output_dir=tmp_path,
+            ranges=[TimeRange(start_seconds=60.0, end_seconds=120.0)],
+        )
+
+        result = service.execute(request)
+
+        assert result.success_count == 1
+
+
 class TestClipServiceParallel:
     def test_parallel_execution(self, mock_ytdlp: MagicMock, tmp_path: Path) -> None:
         """複数クリップがThreadPoolExecutorで並列実行される"""

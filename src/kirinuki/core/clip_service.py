@@ -5,6 +5,7 @@ import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Protocol
 
 from kirinuki.core.clip_utils import build_numbered_filename
 from kirinuki.core.errors import AuthenticationRequiredError
@@ -17,6 +18,10 @@ from kirinuki.models.clip import (
 logger = logging.getLogger(__name__)
 
 
+class _FfmpegClient(Protocol):
+    def reencode(self, file_path: Path) -> None: ...
+
+
 class ClipService:
     """複数範囲の切り出しオーケストレーション
 
@@ -27,9 +32,11 @@ class ClipService:
         self,
         ytdlp_client: object,
         *,
+        ffmpeg_client: _FfmpegClient | None = None,
         max_workers: int = 4,
     ) -> None:
         self._ytdlp = ytdlp_client
+        self._ffmpeg = ffmpeg_client
         self._max_workers = max_workers
 
     def execute(
@@ -75,6 +82,8 @@ class ClipService:
                 output_path,
                 cookie_file=request.cookie_file,
             )
+            if self._ffmpeg:
+                self._ffmpeg.reencode(output_path)
             return ClipOutcome(
                 range=time_range,
                 output_path=output_path,
