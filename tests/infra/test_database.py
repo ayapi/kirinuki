@@ -1025,3 +1025,62 @@ class TestBackfillMethods:
             "SELECT broadcast_start_at FROM videos WHERE video_id='vid1'"
         ).fetchone()
         assert row[0] == bsa.isoformat()
+
+
+class TestGetAllVideos:
+    @pytest.fixture
+    def db_with_multi_channel(self, db: Database):
+        """複数チャンネルに動画を登録したDB"""
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_channel("UC2", "Ch2", "https://youtube.com/c/ch2")
+        db.save_video(
+            "vid1", "UC1", "Video 1",
+            published_at=datetime(2024, 1, 10, tzinfo=timezone.utc),
+            duration_seconds=3600, subtitle_language="ja", is_auto_subtitle=False,
+            broadcast_start_at=datetime(2024, 1, 10, 20, 0, tzinfo=timezone.utc),
+        )
+        db.save_video(
+            "vid2", "UC2", "Video 2",
+            published_at=datetime(2024, 2, 15, tzinfo=timezone.utc),
+            duration_seconds=1800, subtitle_language="ja", is_auto_subtitle=False,
+            broadcast_start_at=datetime(2024, 2, 15, 20, 0, tzinfo=timezone.utc),
+        )
+        db.save_video(
+            "vid3", "UC1", "Video 3",
+            published_at=datetime(2024, 3, 20, tzinfo=timezone.utc),
+            duration_seconds=7200, subtitle_language="ja", is_auto_subtitle=False,
+        )  # broadcast_start_at=NULL → COALESCEでpublished_at使用
+        return db
+
+    def test_returns_all_videos_sorted_by_broadcast_desc(self, db_with_multi_channel: Database) -> None:
+        """全チャンネルの動画がCOALESCE(broadcast_start_at, published_at)降順で返る"""
+        result = db_with_multi_channel.get_all_videos(count=10)
+        assert len(result) == 3
+        assert result[0].video_id == "vid3"  # 2024-03-20
+        assert result[1].video_id == "vid2"  # 2024-02-15T20:00
+        assert result[2].video_id == "vid1"  # 2024-01-10T20:00
+
+    def test_count_limits_results(self, db_with_multi_channel: Database) -> None:
+        """count指定で取得件数が制限される"""
+        result = db_with_multi_channel.get_all_videos(count=2)
+        assert len(result) == 2
+        assert result[0].video_id == "vid3"
+        assert result[1].video_id == "vid2"
+
+    def test_empty_db_returns_empty_list(self, db: Database) -> None:
+        """動画が0件の場合は空リストを返す"""
+        result = db.get_all_videos(count=10)
+        assert result == []
+
+    def test_multi_channel_videos_mixed(self, db_with_multi_channel: Database) -> None:
+        """複数チャンネルの動画が混在して返る"""
+        result = db_with_multi_channel.get_all_videos(count=10)
+        channel_ids = set()
+        for v in result:
+            # VideoSummaryにはchannel_idがないのでvideo_idで確認
+            pass
+        # vid1=UC1, vid2=UC2, vid3=UC1 が全て含まれる
+        video_ids = [v.video_id for v in result]
+        assert "vid1" in video_ids
+        assert "vid2" in video_ids
+        assert "vid3" in video_ids

@@ -802,6 +802,25 @@ class Database:
         )
         self._auto_commit()
 
+    def get_all_videos(self, count: int) -> list[VideoSummary]:
+        """全チャンネルの動画をcount件、配信日時降順で取得する。"""
+        rows = self._execute(
+            """SELECT video_id, title, published_at, duration_seconds
+               FROM videos
+               ORDER BY COALESCE(broadcast_start_at, published_at) DESC
+               LIMIT ?""",
+            (count,),
+        ).fetchall()
+        return [
+            VideoSummary(
+                video_id=row[0],
+                title=row[1],
+                published_at=datetime.fromisoformat(row[2]) if row[2] else None,
+                duration_seconds=row[3],
+            )
+            for row in rows
+        ]
+
     def channel_exists(self, channel_id: str) -> bool:
         """チャンネルが登録済みかどうか"""
         row = self._execute(
