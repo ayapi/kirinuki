@@ -4,7 +4,11 @@ from datetime import datetime, timezone, timedelta
 
 import pytest
 
-from kirinuki.core.clip_utils import has_datetime_prefix, prepend_datetime_prefix
+from kirinuki.core.clip_utils import (
+    build_numbered_filename,
+    has_datetime_prefix,
+    prepend_datetime_prefix,
+)
 
 JST = timezone(timedelta(hours=9))
 
@@ -64,3 +68,39 @@ class TestPrependDatetimePrefix:
         dt = datetime(2026, 3, 10, 20, 0, tzinfo=timezone.utc)
         result = prepend_datetime_prefix("clip.mp4", dt)
         assert result == "20260311_0500_clip.mp4"
+
+    def test_auto_generated_filename(self) -> None:
+        """TUI/suggest経由の自動生成ファイル名にもプレフィックスが付与される"""
+        dt = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)
+        result = prepend_datetime_prefix(
+            "dQw4w9WgXcQ-18m03s-面白い話題.mp4", dt
+        )
+        assert result == "20260310_2100_dQw4w9WgXcQ-18m03s-面白い話題.mp4"
+
+
+class TestDatetimePrefixWithNumberedFilename:
+    """日時プレフィックスと連番の組み合わせテスト（build_numbered_filename → prepend_datetime_prefix）"""
+
+    def test_numbered_then_prefixed(self) -> None:
+        dt = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)
+        numbered = build_numbered_filename("動画.mp4", 1, 3)
+        result = prepend_datetime_prefix(numbered, dt)
+        assert result == "20260310_2100_動画1.mp4"
+
+    def test_single_no_number_with_prefix(self) -> None:
+        dt = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)
+        numbered = build_numbered_filename("動画.mp4", 1, 1)
+        result = prepend_datetime_prefix(numbered, dt)
+        assert result == "20260310_2100_動画.mp4"
+
+    def test_multiple_files_sequential(self) -> None:
+        dt = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)
+        results = []
+        for i in range(1, 4):
+            numbered = build_numbered_filename("動画.mp4", i, 3)
+            results.append(prepend_datetime_prefix(numbered, dt))
+        assert results == [
+            "20260310_2100_動画1.mp4",
+            "20260310_2100_動画2.mp4",
+            "20260310_2100_動画3.mp4",
+        ]
