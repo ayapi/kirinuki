@@ -489,6 +489,99 @@ class TestSegments:
         assert "youtube.com" not in result.output
 
 
+class TestVideos:
+    @patch("kirinuki.cli.main.create_app_context")
+    def test_videos_output_format(self, mock_ctx, runner):
+        """通常モードで配信日時・タイトル・URLが表示される"""
+        from datetime import datetime, timezone
+
+        mock_context = MagicMock()
+        mock_context.db.get_all_videos.return_value = [
+            VideoSummary(
+                video_id="vid1",
+                title="テスト動画",
+                published_at=datetime(2024, 6, 15, 20, 0, tzinfo=timezone.utc),
+                duration_seconds=3600,
+            ),
+        ]
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = runner.invoke(cli, ["videos"])
+        assert result.exit_code == 0
+        assert "2024-06-15 20:00" in result.output
+        assert "テスト動画" in result.output
+        assert "https://www.youtube.com/watch?v=vid1" in result.output
+
+    @patch("kirinuki.cli.main.create_app_context")
+    def test_videos_empty(self, mock_ctx, runner):
+        """動画0件時にメッセージが表示される"""
+        mock_context = MagicMock()
+        mock_context.db.get_all_videos.return_value = []
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = runner.invoke(cli, ["videos"])
+        assert result.exit_code == 0
+        assert "動画が登録されていません" in result.output
+
+    @patch("kirinuki.cli.main.create_app_context")
+    def test_videos_count_option(self, mock_ctx, runner):
+        """--countオプションがDBメソッドに渡される"""
+        mock_context = MagicMock()
+        mock_context.db.get_all_videos.return_value = []
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        runner.invoke(cli, ["videos", "--count", "5"])
+        mock_context.db.get_all_videos.assert_called_once_with(count=5)
+
+    @patch("kirinuki.cli.main.create_app_context")
+    def test_videos_default_count(self, mock_ctx, runner):
+        """デフォルトでcount=20が使われる"""
+        mock_context = MagicMock()
+        mock_context.db.get_all_videos.return_value = []
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        runner.invoke(cli, ["videos"])
+        mock_context.db.get_all_videos.assert_called_once_with(count=20)
+
+    @patch("kirinuki.cli.main.create_app_context")
+    def test_videos_multiple(self, mock_ctx, runner):
+        """複数動画が全て表示される"""
+        from datetime import datetime, timezone
+
+        mock_context = MagicMock()
+        mock_context.db.get_all_videos.return_value = [
+            VideoSummary(
+                video_id="vid1", title="動画A",
+                published_at=datetime(2024, 3, 1, tzinfo=timezone.utc),
+                duration_seconds=3600,
+            ),
+            VideoSummary(
+                video_id="vid2", title="動画B",
+                published_at=datetime(2024, 2, 1, tzinfo=timezone.utc),
+                duration_seconds=1800,
+            ),
+        ]
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_context)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = runner.invoke(cli, ["videos"])
+        assert result.exit_code == 0
+        assert "動画A" in result.output
+        assert "動画B" in result.output
+        assert "https://www.youtube.com/watch?v=vid1" in result.output
+        assert "https://www.youtube.com/watch?v=vid2" in result.output
+
+    def test_videos_help(self, runner):
+        result = runner.invoke(cli, ["videos", "--help"])
+        assert result.exit_code == 0
+        assert "--count" in result.output
+        assert "--tui" in result.output
+
+
 class TestHelp:
     def test_main_help(self, runner):
         result = runner.invoke(cli, ["--help"])
