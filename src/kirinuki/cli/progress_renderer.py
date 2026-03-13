@@ -99,6 +99,10 @@ class ProgressRenderer:
 
     def _render(self) -> None:
         """現在の状態をターミナルに描画する。"""
+        # 初回描画時にカーソルを非表示にする
+        if self._lines_written == 0:
+            self._output.write("\033[?25l")
+
         # カーソルを前回描画行数分戻す
         if self._lines_written > 0:
             self._output.write(f"\033[{self._lines_written}A")
@@ -143,6 +147,8 @@ class ProgressRenderer:
                 for _ in range(self._lines_written):
                     self._output.write("\033[2K\n")
                 self._output.write(f"\033[{self._lines_written}A")
-                self._output.flush()
+            # カーソルを再表示
+            self._output.write("\033[?25h")
+            self._output.flush()
             self._lines_written = 0
             self._finished = True

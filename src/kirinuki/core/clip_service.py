@@ -124,7 +124,10 @@ class ClipService:
 
                 _notify(ClipProgress(clip_index=index, phase=ClipPhase.DONE))
             except Exception:
-                _notify(ClipProgress(clip_index=index, phase=ClipPhase.ERROR))
+                try:
+                    _notify(ClipProgress(clip_index=index, phase=ClipPhase.ERROR))
+                except Exception:
+                    pass
                 raise
 
             return ClipOutcome(
