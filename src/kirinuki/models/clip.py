@@ -5,7 +5,7 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class ClipPhase(Enum):
@@ -88,6 +88,7 @@ class MultiClipRequest(BaseModel):
     filenames: list[str] | None = None
     cookie_file: Path | None = None
     broadcast_start_at: datetime | None = None
+    margin_seconds: float = Field(default=0.0, ge=0)
 
     @model_validator(mode="after")
     def validate_ranges(self) -> "MultiClipRequest":
