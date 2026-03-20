@@ -15,6 +15,7 @@ from pathlib import Path
 import click
 
 from kirinuki.cli.progress_renderer import ProgressRenderer
+from kirinuki.core.clip_service import DEFAULT_CLIP_MARGIN_SECONDS
 from kirinuki.core.clip_utils import extract_video_id, generate_clip_filename
 from kirinuki.core.formatter import format_time_range
 from kirinuki.models.clip import ClipOutcome, MultiClipRequest, TimeRange
@@ -249,6 +250,7 @@ def execute_clips(
             ranges=group_ranges,
             filenames=group_filenames,
             broadcast_start_at=broadcast_start_at,
+            margin_seconds=DEFAULT_CLIP_MARGIN_SECONDS,
         )
 
         renderer = ProgressRenderer(
