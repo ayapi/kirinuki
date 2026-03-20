@@ -19,6 +19,8 @@ from kirinuki.models.clip import (
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_CLIP_MARGIN_SECONDS: float = 5.0
+
 
 class _FfmpegClient(Protocol):
     def reencode(self, file_path: Path) -> None: ...
@@ -111,14 +113,18 @@ class ClipService:
                 if p is not None:
                     _notify(p)
 
+            margin = request.margin_seconds
+            effective_start = max(0.0, time_range.start_seconds - margin)
+            effective_end = time_range.end_seconds + margin
+
             try:
                 _notify(
                     ClipProgress(clip_index=index, phase=ClipPhase.DOWNLOADING)
                 )
                 self._ytdlp.download_section(
                     request.video_id,
-                    time_range.start_seconds,
-                    time_range.end_seconds,
+                    effective_start,
+                    effective_end,
                     output_path,
                     cookie_file=request.cookie_file,
                     on_progress=_ytdlp_hook if on_progress else None,
