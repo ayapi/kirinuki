@@ -60,6 +60,9 @@ class TestClipCommand:
         assert result.exit_code == 0
         assert "output.mp4" in result.output
         assert "成功" in result.output or "完了" in result.output
+        # CLIではmargin_secondsが0.0（マージンなし）であること
+        call_args = mock_create_clip.return_value.execute.call_args[0][0]
+        assert call_args.margin_seconds == 0.0
 
     def test_normal_multiple_ranges(self, runner: CliRunner, tmp_path: Path) -> None:
         """正常系: 複数範囲の切り抜き"""

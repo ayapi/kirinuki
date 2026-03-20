@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from kirinuki.cli.tui import execute_clips
+from kirinuki.core.clip_service import DEFAULT_CLIP_MARGIN_SECONDS
 from kirinuki.models.clip import (
     ClipOutcome,
     ClipPhase,
@@ -56,6 +57,8 @@ class TestExecuteClips:
         assert len(outcomes) == 1
         assert outcomes[0].output_path is not None
         mock_service.execute.assert_called_once()
+        request = mock_service.execute.call_args[0][0]
+        assert request.margin_seconds == DEFAULT_CLIP_MARGIN_SECONDS
 
     def test_multiple_clips_same_video_grouped(self) -> None:
         """同じ動画IDの候補はグルーピングされ、executeは1回だけ呼ばれる"""
