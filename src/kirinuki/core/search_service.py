@@ -36,10 +36,11 @@ class SearchService:
                 return [], warnings
             existing_ids = existing
 
-        # キーワード検索（FTS5 trigram: 3文字以上必要）
-        fts_results = []
+        # キーワード検索（FTS5 trigram: 3文字以上必要、未満はLIKEフォールバック）
         if len(query) >= 3:
             fts_results = self._db.fts_search_segments(query, limit=limit * 2, video_ids=existing_ids)
+        else:
+            fts_results = self._db.like_search_segments(query, limit=limit * 2, video_ids=existing_ids)
 
         # ベクトル意味検索
         embeddings = self._embedding.embed([query])

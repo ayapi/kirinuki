@@ -652,6 +652,52 @@ class Database:
             for row in rows
         ]
 
+    def like_search_segments(
+        self, query: str, limit: int = 50, video_ids: list[str] | None = None,
+    ) -> list[dict]:
+        """LIKE検索で字幕テキストからセグメントを特定して返す。
+
+        FTS5 trigramが3文字未満のクエリに対応できないため、短いクエリ用のフォールバック。
+        返却形式はfts_search_segmentsと同一。
+        """
+        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        params: list = [f"%{escaped}%"]
+        video_filter = ""
+        if video_ids:
+            placeholders = ",".join("?" for _ in video_ids)
+            video_filter = f" AND s.video_id IN ({placeholders})"
+            params.extend(video_ids)
+        params.append(limit)
+        rows = self._execute(
+            f"""SELECT s.id, s.video_id, s.start_ms, s.end_ms, s.summary,
+                      v.title, c.name as channel_name,
+                      GROUP_CONCAT(sl.text, '…') as snippet
+               FROM subtitle_lines sl
+               JOIN segments s ON sl.video_id = s.video_id
+                   AND sl.start_ms >= s.start_ms
+                   AND sl.start_ms < s.end_ms
+               JOIN videos v ON s.video_id = v.video_id
+               JOIN channels c ON v.channel_id = c.channel_id
+               WHERE sl.text LIKE ? ESCAPE '\\'{video_filter}
+               GROUP BY s.id, s.video_id, s.start_ms, s.end_ms, s.summary,
+                        v.title, c.name
+               LIMIT ?""",
+            tuple(params),
+        ).fetchall()
+        return [
+            {
+                "segment_id": row[0],
+                "video_id": row[1],
+                "start_ms": row[2],
+                "end_ms": row[3],
+                "summary": row[4],
+                "video_title": row[5],
+                "channel_name": row[6],
+                "snippet": row[7] or "",
+            }
+            for row in rows
+        ]
+
     # --- Suggest 機能用メソッド ---
 
     def get_latest_videos(

@@ -555,6 +555,77 @@ class TestFtsSearchSegmentsVideoIdFilter:
         assert len(results) == 2
 
 
+class TestLikeSearchSegments:
+    """like_search_segments（FTS trigram 3文字未満クエリ用LIKEフォールバック）のテスト"""
+
+    @pytest.fixture
+    def db_with_data(self, db: Database):
+        db.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        db.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
+        db.save_video("vid2", "UC1", "Video 2", None, 7200, "ja", False)
+        db.save_subtitle_lines("vid1", [
+            SubtitleEntry(start_ms=0, duration_ms=5000, text="今日は演出の話をします"),
+            SubtitleEntry(start_ms=10000, duration_ms=5000, text="演出が変わりました"),
+            SubtitleEntry(start_ms=60000, duration_ms=5000, text="別の話題です"),
+        ])
+        db.save_subtitle_lines("vid2", [
+            SubtitleEntry(start_ms=0, duration_ms=5000, text="この演出はすごい"),
+        ])
+        db.save_segments_with_vectors("vid1", [
+            {"start_ms": 0, "end_ms": 30000, "summary": "演出について"},
+            {"start_ms": 60000, "end_ms": 120000, "summary": "別の話題"},
+        ], [[0.1] * 1536, [0.2] * 1536])
+        db.save_segments_with_vectors("vid2", [
+            {"start_ms": 0, "end_ms": 60000, "summary": "演出紹介"},
+        ], [[0.3] * 1536])
+        return db
+
+    def test_two_char_query_matches(self, db_with_data: Database) -> None:
+        """2文字クエリでLIKE検索がヒットする"""
+        results = db_with_data.like_search_segments("演出")
+        assert len(results) >= 1
+        for r in results:
+            assert "演出" in r["snippet"]
+
+    def test_returns_same_dict_format_as_fts(self, db_with_data: Database) -> None:
+        """返却dictのキーがfts_search_segmentsと同一"""
+        results = db_with_data.like_search_segments("演出")
+        expected_keys = {"segment_id", "video_id", "start_ms", "end_ms", "summary",
+                         "video_title", "channel_name", "snippet"}
+        for r in results:
+            assert set(r.keys()) == expected_keys
+
+    def test_multiple_matches_concatenated(self, db_with_data: Database) -> None:
+        """同一セグメント内の複数マッチ行が連結される"""
+        results = db_with_data.like_search_segments("演出")
+        vid1_results = [r for r in results if r["video_id"] == "vid1"]
+        assert len(vid1_results) >= 1
+        snippet = vid1_results[0]["snippet"]
+        assert "…" in snippet
+
+    def test_video_id_filter(self, db_with_data: Database) -> None:
+        """video_idsフィルタで絞り込める"""
+        results = db_with_data.like_search_segments("演出", video_ids=["vid1"])
+        assert all(r["video_id"] == "vid1" for r in results)
+
+    def test_no_match(self, db_with_data: Database) -> None:
+        """マッチしないクエリは空リスト"""
+        results = db_with_data.like_search_segments("xyz存在しない")
+        assert results == []
+
+    def test_wildcard_characters_escaped(self, db_with_data: Database) -> None:
+        """クエリ内の%や_がワイルドカードとして解釈されない"""
+        results = db_with_data.like_search_segments("%")
+        assert results == []
+        results = db_with_data.like_search_segments("_")
+        assert results == []
+
+    def test_one_char_query(self, db_with_data: Database) -> None:
+        """1文字クエリでもマッチする"""
+        results = db_with_data.like_search_segments("演")
+        assert len(results) >= 1
+
+
 class TestSegmentVersionsCRUD:
     def test_save_and_get_segment_version(self, db: Database) -> None:
         """バージョンを記録して取得できる"""

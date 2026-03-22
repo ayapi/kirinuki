@@ -17,7 +17,8 @@
   - `subtitle_fts`テーブルには`text`カラムがあり、SELECTに追加するだけで取得可能
   - 同一セグメント内で複数行がマッチする場合、GROUP_CONCATで集約するか最初の1行のみ取得するかの選択がある
   - FTS5の`snippet()`関数は trigram tokenizer では使用不可（highlight/snippetはデフォルトtokenizerのみ対応）
-- **Implications**: GROUP_CONCATで同一セグメント内のマッチ行を連結し、スニペットとして返すアプローチが適切
+  - trigramトークナイザーは3文字未満のクエリではマッチしないため、短いクエリ（1〜2文字）ではFTS検索が機能せずスニペットも生成されない。この場合は`subtitle_lines`テーブルへの`LIKE`フォールバックで字幕検索を行い、スニペットを生成する
+- **Implications**: GROUP_CONCATで同一セグメント内のマッチ行を連結し、スニペットとして返すアプローチが適切。短いクエリにはLIKEフォールバックで同等のスニペットを提供する
 
 ### ベクトル検索の類似度スコア変換
 - **Context**: ベクトル検索のdistanceを人間が理解しやすい類似度に変換する必要がある

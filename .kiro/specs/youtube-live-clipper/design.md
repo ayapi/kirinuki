@@ -149,7 +149,11 @@ sequenceDiagram
     CLI->>SearchSvc: search(query)
 
     par キーワード検索
-        SearchSvc->>DB: fts_search(query)
+        alt クエリが3文字以上
+            SearchSvc->>DB: fts_search_segments(query)
+        else クエリが3文字未満
+            SearchSvc->>DB: like_search_segments(query)
+        end
         DB-->>SearchSvc: keyword_results
     and 意味検索
         SearchSvc->>Emb: embed(query)

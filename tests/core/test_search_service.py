@@ -160,6 +160,35 @@ class TestMatchTypeTracking:
             assert len(r.snippet) > 0
 
 
+class TestShortQueryLikeFallback:
+    """3文字未満のクエリでLIKEフォールバックが動作することのテスト"""
+
+    @pytest.fixture
+    def service_with_short_text(self, mock_embedding):
+        database = Database(db_path=":memory:", embedding_dimensions=1536)
+        database.initialize()
+        database.save_channel("UC1", "Ch1", "https://youtube.com/c/ch1")
+        database.save_video("vid1", "UC1", "Video 1", None, 3600, "ja", False)
+        database.save_subtitle_lines("vid1", [
+            SubtitleEntry(start_ms=0, duration_ms=5000, text="今日は演出の話をします"),
+            SubtitleEntry(start_ms=10000, duration_ms=5000, text="演出が変わりました"),
+        ])
+        database.save_segments_with_vectors("vid1", [
+            {"start_ms": 0, "end_ms": 60000, "summary": "演出について"},
+        ], [[0.1] * 1536])
+        return SearchService(db=database, embedding_provider=mock_embedding)
+
+    def test_two_char_keyword_match(self, service_with_short_text, mock_embedding):
+        """2文字クエリでキーワードマッチが返る"""
+        mock_embedding.embed.return_value = [[0.0] * 1536]
+        results, _ = service_with_short_text.search("演出")
+        keyword_results = [r for r in results if r.match_type in (MatchType.KEYWORD, MatchType.HYBRID)]
+        assert len(keyword_results) > 0
+        for r in keyword_results:
+            assert r.snippet is not None
+            assert "演出" in r.snippet
+
+
 class TestVideoIdFilter:
     @pytest.fixture
     def db_multi(self):
